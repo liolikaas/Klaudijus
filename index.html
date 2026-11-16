@@ -1597,8 +1597,39 @@
   }
 
   /* two particle jets leaving the poles */
-  var JN = 150, jets = [];
-  for (var i = 0; i < JN * 2; i++) jets.push({ side: i < JN ? 1 : -1, d: Math.random(), sp: 0.25 + Math.random() * 0.35, ph: Math.random() * 6.283, sp2: 0.6 + Math.random() * 0.8, s: Math.random() });
+  var JN = 34, jets = [];
+  function sparkReset(p) {
+    p.d = 0; p.sp = 0.45 + Math.random() * 1.1; p.ph = Math.random() * 6.283;
+    p.drift = (Math.random() - 0.5) * 0.9; p.s = Math.random(); p.wait = Math.random() * 1.6;
+  }
+  for (var i = 0; i < JN * 2; i++) { var jp = { side: i < JN ? 1 : -1 }; sparkReset(jp); jp.d = Math.random(); jp.wait = 0; jets.push(jp); }
+
+  /* nebula clouds in places: soft puffs that the lens bends into arcs */
+  var puff = document.createElement("canvas"); puff.width = puff.height = 64;
+  (function () {
+    var pc = puff.getContext("2d"), pg = pc.createRadialGradient(32, 32, 0, 32, 32, 32);
+    pg.addColorStop(0, "rgba(255,255,255,0.55)"); pg.addColorStop(0.4, "rgba(255,255,255,0.18)"); pg.addColorStop(1, "rgba(255,255,255,0)");
+    pc.fillStyle = pg; pc.fillRect(0, 0, 64, 64);
+  })();
+  var tinted = {};
+  function tintPuff(c) {
+    var key = c.join(",");
+    if (tinted[key]) return tinted[key];
+    var cv = document.createElement("canvas"); cv.width = cv.height = 64;
+    var x = cv.getContext("2d"); x.drawImage(puff, 0, 0);
+    x.globalCompositeOperation = "source-in"; x.fillStyle = "rgb(" + key + ")"; x.fillRect(0, 0, 64, 64);
+    return (tinted[key] = cv);
+  }
+  var nebulae = [];
+  for (var i = 0; i < 6; i++) {
+    var nb = { x: Math.random(), y: 0.12 + Math.random() * 0.76, sp: 0.002 + Math.random() * 0.003, c: i % 3, puffs: [] };
+    var nPuff = 16 + Math.floor(Math.random() * 10), spreadX = 0.08 + Math.random() * 0.1, spreadY = 0.04 + Math.random() * 0.06;
+    for (var k = 0; k < nPuff; k++) {
+      var ga = Math.random() * 6.283, gr = Math.sqrt(Math.random());
+      nb.puffs.push({ dx: Math.cos(ga) * gr * spreadX, dy: Math.sin(ga) * gr * spreadY, size: 18 + Math.random() * 40, a: 0.25 + Math.random() * 0.5, shift: Math.random() });
+    }
+    nebulae.push(nb);
+  }
 
   /* nebula clouds drifting around the core */
   var clouds = [
@@ -1703,7 +1734,7 @@
     var ux = ay, uy = -ax, uz = 0, ul = Math.sqrt(ux * ux + uy * uy) || 1; ux /= ul; uy /= ul;
     var vx = ay * uz - az * uy, vy = az * ux - ax * uz, vz = ax * uy - ay * ux;
     var power = 0.35 + level * 1.3 + (warmth > 0.5 ? 0.15 : 0);
-    var reach = R * (1.7 + level * 1.8);
+    var reach = R * (1.3 + level * 1.6);
     var col = blend(blend(ICE, VIOLET, 0.35), EMBER, warmth * 0.75);
 
     /* faint beam along each jet */
@@ -1712,32 +1743,39 @@
       var bx = cx + ax * side * R, by = cy + ay * side * R;
       var ex = cx + ax * side * (R + reach), ey = cy + ay * side * (R + reach);
       var bg = ctx.createLinearGradient(bx, by, ex, ey);
-      bg.addColorStop(0, rgba(col, 0.18 * power));
+      bg.addColorStop(0, rgba(col, 0.07 * power));
       bg.addColorStop(1, rgba(col, 0));
       ctx.strokeStyle = bg; ctx.lineCap = "round";
-      ctx.lineWidth = 5 + level * 6; ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(ex, ey); ctx.stroke();
-      ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(ex, ey); ctx.stroke();
+      ctx.lineWidth = 3 + level * 4; ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(ex, ey); ctx.stroke();
     }
 
     for (var i = 0; i < jets.length; i++) {
       var p = jets[i];
       if (dt) {
-        p.d += dt * p.sp * (calm ? 0.25 : 0.6 + level * 2.4);
-        if (p.d > 1) { p.d -= 1; p.ph = Math.random() * 6.283; p.s = Math.random(); }
+        if (p.wait > 0) { p.wait -= dt * (1 + level * 4); continue; }
+        p.d += dt * p.sp * (calm ? 0.2 : 0.5 + level * 1.8);
+        if (p.d > 1) { sparkReset(p); continue; }
       }
+      if (p.wait > 0) continue;
       var sd = p.side;
       if ((az * sd > 0) !== front) continue;
-      var dist = R + p.d * reach;
-      var spread = R * (0.04 + p.d * 0.32) * (0.6 + p.s * 0.8);
-      var ang = p.ph + p.d * 7 * p.sp2 + t * 0.6 * sd;
+      /* at rest only some sparks fly; the voice wakes the rest */
+      if (p.s > 0.3 + level * 0.7) continue;
+      var dist = R * 1.02 + p.d * reach;
+      var spread = R * (0.03 + p.d * (0.22 + Math.abs(p.drift) * 0.35));
+      var ang = p.ph + p.d * p.drift * 4;
       var ox = (ux * Math.cos(ang) + vx * Math.sin(ang)) * spread, oy = (uy * Math.cos(ang) + vy * Math.sin(ang)) * spread;
       var px = cx + ax * sd * dist + ox, py = cy + ay * sd * dist + oy;
-      var back = R * (0.05 + level * 0.14) * p.sp * 3;
-      var qx = px - ax * sd * back, qy = py - ay * sd * back;
-      var fade = Math.sin(Math.PI * Math.min(1, p.d * 1.15)) * (0.25 + p.s * 0.75);
-      ctx.strokeStyle = rgba(p.s > 0.85 ? EMBER : col, Math.min(1, fade * power));
-      ctx.lineWidth = 0.6 + p.s * 1.2 * (1 - p.d * 0.6);
+      var tail = R * (0.03 + p.sp * 0.05) * (1 + level * 1.5);
+      var qx = px - ax * sd * tail - ox * 0.08, qy = py - ay * sd * tail - oy * 0.08;
+      var flick = calm ? 0.8 : 0.55 + 0.45 * Math.sin(t * 28 + p.ph * 9);
+      var life = Math.pow(1 - p.d, 1.4) * flick;
+      var hot = blend([255, 240, 215], EMBER, 0.35 + warmth * 0.4);
+      ctx.strokeStyle = rgba(col, life * 0.55); ctx.lineWidth = 0.9; ctx.lineCap = "round";
       ctx.beginPath(); ctx.moveTo(qx, qy); ctx.lineTo(px, py); ctx.stroke();
+      var hs = 1.1 + (1 - p.d) * 1.6;
+      ctx.fillStyle = rgba(hot, Math.min(1, life * 1.1));
+      ctx.fillRect(px - hs / 2, py - hs / 2, hs, hs);
     }
   }
 
@@ -1839,7 +1877,7 @@
     var coreCol = blend(ICE, EMBER, warmth);
 
     /* stars, bent by the gravitational lens around the sphere */
-    LX = cx; LY = cy; LE = R * (1.32 + level * 0.12);
+    LX = cx; LY = cy; LE = R * (1.85 + level * 0.15);
     for (var i = 0; i < stars.length; i++) {
       var s = stars[i];
       var sx = ((s.x + t * 0.004 * s.d) % 1) * W, sy = s.y * H;
@@ -1847,7 +1885,7 @@
       var col = s.d > 0.85 ? EMBER : ICE;
       var ss = 0.6 + s.d * 1.1;
       var L = lens(sx, sy);
-      var a1 = Math.min(1, (0.12 + 0.5 * s.d * tw) * Math.min(2.2, Math.sqrt(L.st)));
+      var a1 = Math.min(1, (0.12 + 0.5 * s.d * tw) * Math.min(3, Math.pow(L.st, 0.7)));
       ctx.fillStyle = rgba(col, a1);
       if (L.st < 1.25) {
         ctx.fillRect(L.x, L.y, ss, ss);
@@ -1858,17 +1896,45 @@
         }
       } else {
         /* stretched along the ring into a short arc */
-        var ln = Math.min(46, ss * L.st * 2.2);
+        var ln = Math.min(70, ss * L.st * 3.2);
         ctx.strokeStyle = ctx.fillStyle; ctx.lineWidth = ss * 0.9; ctx.lineCap = "round";
         ctx.beginPath(); ctx.moveTo(L.x - L.tx * ln / 2, L.y - L.ty * ln / 2); ctx.lineTo(L.x + L.tx * ln / 2, L.y + L.ty * ln / 2); ctx.stroke();
       }
       /* the faint second image on the other side of the sphere */
       if (L.r2 > R * 1.04) {
-        var ln2 = Math.min(30, ss * L.st2 * 2.2 + 2);
-        ctx.strokeStyle = rgba(col, a1 * 0.45); ctx.lineWidth = ss * 0.7;
+        var ln2 = Math.min(44, ss * L.st2 * 3.2 + 2);
+        ctx.strokeStyle = rgba(col, a1 * 0.6); ctx.lineWidth = ss * 0.7;
         ctx.beginPath(); ctx.moveTo(L.x2 - L.tx * ln2 / 2, L.y2 - L.ty * ln2 / 2); ctx.lineTo(L.x2 + L.tx * ln2 / 2, L.y2 + L.ty * ln2 / 2); ctx.stroke();
       }
     }
+
+    /* nebula clouds, bent by the lens */
+    ctx.globalCompositeOperation = "lighter";
+    for (var i = 0; i < nebulae.length; i++) {
+      var nb = nebulae[i];
+      var nx0 = ((nb.x + t * nb.sp) % 1.4) * W - 0.2 * W;
+      var ncol = nb.c === 0 ? VIOLET : nb.c === 1 ? TEAL : ICE;
+      for (var k = 0; k < nb.puffs.length; k++) {
+        var pf = nb.puffs[k];
+        var L = lens(nx0 + pf.dx * W * 1.6, nb.y * H + pf.dy * H);
+        var pcol = blend(ncol, pf.shift > 0.7 ? EMBER : VIOLET, pf.shift * 0.35 + warmth * 0.3);
+        var stretch = Math.min(5, L.st), sz = pf.size * (W < 500 ? 0.8 : 1.2);
+        ctx.globalAlpha = Math.min(0.9, pf.a * 0.38 * Math.min(2.2, Math.sqrt(stretch)));
+        ctx.save();
+        ctx.translate(L.x, L.y); ctx.rotate(Math.atan2(L.ty, L.tx));
+        ctx.drawImage(tintPuff(pcol), -sz * stretch / 2, -sz / 2 / Math.sqrt(stretch), sz * stretch, sz / Math.sqrt(stretch));
+        ctx.restore();
+        if (L.r2 > R * 1.04) {
+          ctx.globalAlpha = pf.a * 0.18;
+          var st2 = Math.min(4, L.st2 + 0.6);
+          ctx.save(); ctx.translate(L.x2, L.y2); ctx.rotate(Math.atan2(L.ty, L.tx));
+          ctx.drawImage(tintPuff(pcol), -sz * st2 / 2, -sz / 3, sz * st2, sz / 1.5);
+          ctx.restore();
+        }
+      }
+    }
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = "source-over";
 
     /* distant galaxies, bent into arcs when they pass behind */
     for (var i = 0; i < galaxies.length; i++) {
@@ -1923,7 +1989,7 @@
     var ringR = LE;
     for (var pass = 0; pass < 3; pass++) {
       ctx.lineWidth = pass === 0 ? 14 : pass === 1 ? 4 : 1.1;
-      var base = pass === 0 ? 0.035 : pass === 1 ? 0.06 : 0.22;
+      var base = pass === 0 ? 0.07 : pass === 1 ? 0.12 : 0.4;
       for (var k = 0; k < 48; k++) {
         var a0 = k / 48 * 6.283, a1r = (k + 1.05) / 48 * 6.283;
         var shimmer = 0.55 + 0.45 * Math.sin(a0 * 3 + t * 0.7) * Math.sin(a0 * 5 - t * 0.45);
