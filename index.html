@@ -163,6 +163,29 @@
     background: rgba(7, 12, 26, 0.96);
   }
   #panel[hidden] { display: none; }
+  #mute { display: none !important; }
+  .voice-card {
+    border: 1px solid var(--ice); border-radius: 14px; padding: 12px 14px;
+    background: rgba(88, 184, 255, 0.07); display: flex; flex-direction: column; gap: 8px;
+  }
+  .panel-in .switch-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin: 0; cursor: pointer; color: var(--text); }
+  .sw-text { display: flex; flex-direction: column; gap: 2px; }
+  .sw-text b { font-size: 16px; }
+  .sw-text small { font-size: 13px; color: var(--ice); }
+  .voice-card.off { border-color: var(--line); background: rgba(255, 255, 255, 0.03); }
+  .voice-card.off .sw-text small { color: var(--ember); }
+  .switch-row input {
+    appearance: none; -webkit-appearance: none; flex: none; margin: 0; cursor: pointer;
+    width: 54px; height: 30px; border-radius: 999px; position: relative;
+    background: rgba(255, 255, 255, 0.15); border: 1px solid var(--line); transition: background 0.2s;
+  }
+  .switch-row input::after {
+    content: ""; position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%;
+    background: #fff; transition: transform 0.2s;
+  }
+  .switch-row input:checked { background: #39d98a; border-color: #39d98a; }
+  .switch-row input:checked::after { transform: translateX(24px); }
+  .switch-row input:focus-visible { outline: 2px solid var(--ember); outline-offset: 2px; }
   .panel-foot {
     position: sticky; bottom: 0; margin: 14px -18px -28px; padding: 12px 18px 18px;
     background: rgba(7, 12, 26, 0.98); border-top: 1px solid var(--line);
@@ -365,6 +388,14 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"></path></svg>
         </button>
       </div>
+
+      <section class="voice-card" id="voiceCard">
+        <label class="switch-row" for="setVoiceOn">
+          <span class="sw-text"><b>Klaudijaus balsas</b><small id="voiceStateTxt">Įjungtas: atsakymus jis pasako garsiai.</small></span>
+          <input type="checkbox" id="setVoiceOn" role="switch">
+        </label>
+        <p class="hint">Išjunk, kai negali klausytis garsiai, pavyzdžiui, kai kiti miega ar esi susirinkime. Tada Klaudijus atsako tik tekstu, o balso kreditai nenaudojami. Mikrofonas veikia toliau.</p>
+      </section>
 
       <label for="setName">Asistento vardas</label>
       <input type="text" id="setName" maxlength="30">
@@ -842,7 +873,7 @@
     });
     brow.appendChild(exp); brow.appendChild(impLabel); box.appendChild(brow); box.appendChild(bnote);
 
-    head.insertAdjacentElement("afterend", box);
+    (document.getElementById("voiceCard") || head).insertAdjacentElement("afterend", box);
     setTimeout(refresh, 600); setTimeout(refresh, 2500);
     if (location.protocol === "file:") {
       var warn = el("p", { "class": "hint" }, "Atidaryta kaip failas: Chrome gali klausti mikrofono leidimo kiekvieną kartą. Tai išnyks, kai puslapį padėsime į interneto adresą.");
@@ -905,7 +936,7 @@
   }
 
   /* ---------- settings and memory ---------- */
-  var settings = { name: "Asistentas", tone: "draugiškai ir šiltai", about: "", voice: "buttery", rate: 1, handsfree: false, theme: "auto", ambient: true, user: "", rules: DEFAULT_RULES, chat: true, info: !narrow() };
+  var settings = { name: "Asistentas", tone: "draugiškai ir šiltai", about: "", voice: "buttery", rate: 1, handsfree: false, theme: "auto", ambient: true, voiceOn: true, user: "", rules: DEFAULT_RULES, chat: true, info: !narrow() };
   var mem = { notes: [], history: [] };
   var LS = "asist.v2", touched = false;
 
@@ -919,6 +950,7 @@
     settings.handsfree = !!d.handsfree;
     if (typeof d.theme === "string" && setTheme.querySelector('option[value="' + d.theme + '"]')) settings.theme = d.theme;
     if (typeof d.ambient === "boolean") settings.ambient = d.ambient;
+    if (typeof d.voiceOn === "boolean") settings.voiceOn = d.voiceOn;
     if (typeof d.chat === "boolean") settings.chat = d.chat;
     if (typeof d.info === "boolean") settings.info = d.info;
     if (typeof d.user === "string") settings.user = d.user.trim().slice(0, 30);
@@ -937,6 +969,7 @@
   } catch (e) {}
 
   var store = null, chain = Promise.resolve(), warned = false;
+  var muted = false;
   var drafting = false, snap = null, dirtyFlag = false;
   function markDirty() {
     dirtyFlag = true;
@@ -1028,6 +1061,10 @@
     rateIn.value = String(settings.rate);
     setTheme.value = settings.theme;
     setAmbient.checked = settings.ambient;
+    $("setVoiceOn").checked = settings.voiceOn;
+    $("voiceCard").classList.toggle("off", !settings.voiceOn);
+    $("voiceStateTxt").textContent = settings.voiceOn ? "Įjungtas: atsakymus jis pasako garsiai." : "Išjungtas: atsako tik tekstu.";
+    muted = !settings.voiceOn;
     setUser.value = settings.user;
     setRules.value = settings.rules;
     applyTheme(settings.theme);
@@ -1091,6 +1128,14 @@
   setTheme.addEventListener("change", function () {
     settings.theme = setTheme.value; applyTheme(settings.theme); persist("settings");
   });
+  $("setVoiceOn").addEventListener("change", function () {
+    settings.voiceOn = $("setVoiceOn").checked;
+    muted = !settings.voiceOn;
+    $("voiceCard").classList.toggle("off", !settings.voiceOn);
+    $("voiceStateTxt").textContent = settings.voiceOn ? "Įjungtas: atsakymus jis pasako garsiai." : "Išjungtas: atsako tik tekstu.";
+    if (muted) { stopSpeaking(); if (state === "speaking") setState("idle"); }
+    persist("settings");
+  });
   setAmbient.addEventListener("change", function () {
     settings.ambient = setAmbient.checked; persist("settings"); wake();
   });
@@ -1128,7 +1173,8 @@
 
   /* ---------- capabilities ---------- */
   var sample = null, tts = null, dict = null;
-  var muted = false, busy = false, listening = false;
+  var busy = false, listening = false;
+  muted = !settings.voiceOn;
   var webSpeech = ("speechSynthesis" in window) ? window.speechSynthesis : null;
 
   function ready(name) {
