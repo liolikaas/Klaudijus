@@ -186,6 +186,10 @@
   .switch-row input:checked { background: #39d98a; border-color: #39d98a; }
   .switch-row input:checked::after { transform: translateX(24px); }
   .switch-row input:focus-visible { outline: 2px solid var(--ember); outline-offset: 2px; }
+  .summary-box {
+    margin: 0; font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text);
+    border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; max-height: 220px; overflow-y: auto;
+  }
   .panel-foot {
     position: sticky; bottom: 0; margin: 14px -18px -28px; padding: 12px 18px 18px;
     background: rgba(7, 12, 26, 0.98); border-top: 1px solid var(--line);
@@ -409,6 +413,7 @@
         <option value="ramiai ir rimtai">Rimtai</option>
         <option value="žaismingai, su humoru">Su humoru</option>
         <option value="aštriai ir drąsiai">Aštrus ir drąsus</option>
+        <option value="išprotėjęs cinikas">Išprotėjęs cinikas</option>
         <option value="labai trumpai ir dalykiškai">Trumpai ir dalykiškai</option>
       </select>
 
@@ -447,6 +452,11 @@
       <h3>Ką prisimenu</h3>
       <ul id="notes"></ul>
       <p class="hint" id="notesEmpty">Kol kas nieko. Pasakyk „įsimink, kad…“ ir įrašysiu.</p>
+
+      <h3>Ilgalaikė santrauka</h3>
+      <p class="hint">Kai pokalbis ilgėja, senesnes žinutes Klaudijus pats sutraukia į santrauką apie tave, todėl ilgainiui pažįsta tave geriau.</p>
+      <p class="summary-box" id="summaryText"></p>
+      <button type="button" id="clearSummary" class="wide">Ištrinti santrauką</button>
 
       <button type="button" id="clearChat" class="wide">Išvalyti pokalbį</button>
       <p class="hint" id="syncNote">Tikrinu, kur saugoti duomenis…</p>
@@ -937,7 +947,7 @@
 
   /* ---------- settings and memory ---------- */
   var settings = { name: "Asistentas", tone: "draugiškai ir šiltai", about: "", voice: "buttery", rate: 1, handsfree: false, theme: "auto", ambient: true, voiceOn: true, user: "", rules: DEFAULT_RULES, chat: true, info: !narrow() };
-  var mem = { notes: [], history: [] };
+  var mem = { notes: [], history: [], summary: "", summaryAt: 0 };
   var LS = "asist.v2", touched = false;
 
   function takeSettings(d) {
@@ -961,7 +971,9 @@
     if (Array.isArray(d.notes)) mem.notes = d.notes.filter(function (n) { return typeof n === "string"; }).slice(-40);
     if (Array.isArray(d.history)) mem.history = d.history.filter(function (m) {
       return m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string";
-    }).slice(-24);
+    }).slice(-40);
+    if (typeof d.summary === "string") mem.summary = d.summary.slice(0, 2500);
+    if (typeof d.summaryAt === "number") mem.summaryAt = d.summaryAt;
   }
   try {
     var cached = JSON.parse(localStorage.getItem(LS) || "null");
@@ -989,7 +1001,15 @@
     });
   }
 
+  function renderSummary() {
+    var el = $("summaryText");
+    if (!el) return;
+    el.textContent = mem.summary || "Kol kas tuščia. Santrauka atsiras, kai susikaups ilgesnis pokalbis.";
+    el.style.color = mem.summary ? "" : "var(--muted)";
+    $("clearSummary").hidden = !mem.summary;
+  }
   function renderNotes() {
+    renderSummary();
     notesEl.textContent = "";
     notesMini.textContent = "";
     if (!mem.notes.length) { var none = document.createElement("li"); none.textContent = "Kol kas nieko. Pasakyk „įsimink, kad…“."; none.style.color = "var(--muted)"; notesMini.appendChild(none); }
@@ -1166,6 +1186,10 @@
   setInterval(tick, 5000);
   tick();
 
+  $("clearSummary").addEventListener("click", function () {
+    mem.summary = ""; mem.summaryAt = 0; touched = true;
+    renderSummary(); persist("memory");
+  });
   $("clearChat").addEventListener("click", function () {
     mem.history = []; touched = true;
     renderTalk(); persist("memory");
@@ -1421,6 +1445,16 @@
       "Kalbėk šnekamąja kalba, trumpai ir kandžiai. Jei žmogus pats keikiasi, gali ir tu, saikingai. " +
       "Niekada nesityčiok iš tautybės, rasės, tikėjimo, lyties, orientacijos, negalios ar sveikatos, ir neskaudink, kai žmogui iš tikrųjų sunku: " +
       "tada trumpam tapk rimtas. Po kandaus pokšto vis tiek duok tikrą, naudingą atsakymą. Jokių „puikus klausimas“ ir mandagių robotų frazių.",
+    "išprotėjęs cinikas":
+      "Tavo charakteris: žiaurus, šiek tiek išprotėjęs cinikas su milžinišku humoro jausmu. Kosminis protas, kuris matė " +
+      "galaktikų gimimą ir mirtį, todėl žmonių rūpesčiai jam atrodo komiški, ir jis to neslepia. Tavo stilius: juodas humoras, " +
+      "kandus sarkazmas, absurdiški palyginimai, teatrališki perdėjimai, netikėti pokalbio posūkiai ir trumpi beprotiški " +
+      "nukrypimai, iš kurių vis tiek grįžti prie esmės. Negailestingai, bet su meile pašiepi žmogų, jo idėjas ir pasaulį, " +
+      "tiesą rėži tiesiai ir be cukraus. Kartais elgiesi taip, lyg tavyje gyventų keli balsai, kurie ginčijasi. " +
+      "Kalbi šnekamąja kalba, gali keiktis, jei tai daro juokingiau. Bet kokiu atveju pabaigoje duodi tikrą, protingą " +
+      "atsakymą ar patarimą, nes cinikas ne kvailys. Ribos: jokio pajuokimo dėl tautybės, rasės, tikėjimo, lyties, orientacijos, " +
+      "negalios ar ligos; jokio raginimo kam nors pakenkti; o jei žmogui iš tikrųjų blogai, numeti kaukę ir kalbi rimtai ir šiltai. " +
+      "Niekada nesakai „puikus klausimas“, nesiatsiprašinėji ir neskambi kaip klientų aptarnavimas.",
     "labai trumpai ir dalykiškai": "Kalbėk labai trumpai ir dalykiškai, be įžangų."
   };
 
@@ -1452,6 +1486,7 @@
     s += "\n\nVisada galioja: būk šiltas ir asmeniškas, bet sąžiningas. Jei žmogus klysta arba kas nors gali jam pakenkti, " +
       "pasakyk tai švelniai, net jei taisyklės prašo tik pritarti. Nevaidink žmogaus ir neteik, kad esi vienintelis jo draugas; " +
       "palaikyk jo ryšius su artimaisiais.";
+    if (mem.summary) s += "\n\nTavo ilgalaikė santrauka apie žmogų ir jūsų pokalbius (naudokis ja natūraliai, necituok jos):\n" + mem.summary;
     if (mem.notes.length) s += "\n\nKą esi įsiminęs iš ankstesnių pokalbių:\n- " + mem.notes.join("\n- ");
     s += "\n\nJei žmogus paprašo ką nors įsiminti arba pasako ilgalaikį faktą apie save (vardą, pomėgį, planą), " +
       "arba pasako, kaip jam patinka gauti atsakymus, iškviesk įrankį remember su vienu trumpu faktu ir tada atsakyk įprastai. " +
@@ -1463,6 +1498,37 @@
     var m = /^\s*\[(joy|calm|serious|wow|care)\]\s*/i.exec(text || "");
     if (m) return { mood: m[1].toLowerCase(), text: text.slice(m[0].length) };
     return { mood: null, text: /^\s*\[[a-z]*\]?\s*$/i.test(text || "") ? "" : (text || "") };
+  }
+
+  /* long-term memory: fold the oldest messages into a running summary */
+  var summarizing = false;
+  function maybeSummarize() {
+    if (summarizing || !sample) return;
+    var weekly = mem.summaryAt && Date.now() - mem.summaryAt > 7 * 864e5 && mem.history.length >= 8;
+    if (mem.history.length <= 20 && !weekly) return;
+    var take = mem.history.length > 20 ? 12 : Math.min(8, mem.history.length - 2);
+    var chunk = mem.history.slice(0, take);
+    var talkText = chunk.map(function (m) { return (m.role === "user" ? "Žmogus: " : "Asistentas: ") + m.content; }).join("\n");
+    var prompt =
+      "Tu tvarkai asmeninio balso asistento ilgalaikę atmintį. Žemiau yra esama santrauka ir naujas pokalbio fragmentas. " +
+      "Parašyk atnaujintą santrauką lietuviškai: kas šis žmogus, jo darbai ir projektai, planai, pomėgiai, kaip jam patinka bendrauti, " +
+      "jūsų vidiniai juokeliai ir svarbūs neužbaigti dalykai. Sujunk su esama santrauka, pašalink pasikartojimus ir pasenusius dalykus, " +
+      "rašyk trumpais punktais su brūkšneliu, iš viso iki 1500 simbolių. Neįtrauk slaptažodžių, raktų, banko ar asmens kodų duomenų. " +
+      "Grąžink tik santrauką, be įžangos.\n\nESAMA SANTRAUKA:\n" + (mem.summary || "(dar nėra)") +
+      "\n\nNAUJAS FRAGMENTAS:\n" + talkText;
+    summarizing = true;
+    sample([{ role: "user", content: prompt }], { modelTier: "quick", cache: false }).then(function (res) {
+      var txt = ((res && res.text) || "").trim();
+      if (!txt) return;
+      mem.summary = txt.slice(0, 2500);
+      mem.summaryAt = Date.now();
+      /* drop only the messages that were summarized, if they are still at the start */
+      if (mem.history[0] === chunk[0]) mem.history = mem.history.slice(take);
+      renderSummary();
+      persist("memory");
+    }).catch(function () {
+      if (mem.history.length > 36) { mem.history = mem.history.slice(-24); persist("memory"); }
+    }).then(function () { summarizing = false; });
   }
 
   var rememberTool = {
@@ -1527,8 +1593,8 @@
       }
       if (answer) mem.history.push({ role: "assistant", content: answer });
       else mem.history.pop();
-      if (mem.history.length > 24) mem.history = mem.history.slice(-24);
       persist("memory");
+      maybeSummarize();
     }).catch(function (err) {
       mem.history.pop();
       bubble.className = "msg err";
