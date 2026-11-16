@@ -1053,7 +1053,7 @@
 
   /* ---------- settings and memory ---------- */
   var settings = { name: "Asistentas", tone: "draugiškai ir šiltai", about: "", voice: "buttery", rate: 1, handsfree: false, theme: "auto", ambient: true, voiceOn: true, narrate: true, user: "", rules: DEFAULT_RULES, chat: true, info: !narrow() };
-  var mem = { notes: [], history: [], summary: "", summaryAt: 0 };
+  var mem = { notes: [], history: [], summary: "", summaryAt: 0, lastSeen: 0 };
   var LS = "asist.v2", touched = false;
 
   function takeSettings(d) {
@@ -1078,9 +1078,10 @@
     if (Array.isArray(d.notes)) mem.notes = d.notes.filter(function (n) { return typeof n === "string"; }).slice(-40);
     if (Array.isArray(d.history)) mem.history = d.history.filter(function (m) {
       return m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string";
-    }).slice(-40);
+    }).slice(-60);
     if (typeof d.summary === "string") mem.summary = d.summary.slice(0, 2500);
     if (typeof d.summaryAt === "number") mem.summaryAt = d.summaryAt;
+    if (typeof d.lastSeen === "number") mem.lastSeen = d.lastSeen;
   }
   try {
     var cached = JSON.parse(localStorage.getItem(LS) || "null");
@@ -1630,6 +1631,20 @@
     s += "\n\nVisada galioja: būk šiltas ir asmeniškas, bet sąžiningas. Jei žmogus klysta arba kas nors gali jam pakenkti, " +
       "pasakyk tai švelniai, net jei taisyklės prašo tik pritarti. Nevaidink žmogaus ir neteik, kad esi vienintelis jo draugas; " +
       "palaikyk jo ryšius su artimaisiais.";
+    s += "\n\nKaip būti artimu, protingu asistentu, o ne paieškos langu:\n" +
+      "- Skaityk žmogų: pagal žodžius, tempą ir laiką jauski, ar jis skuba, pavargęs, susinervinęs ar geros nuotaikos, ir pagal tai keisk toną bei ilgį. Pavargusiam – trumpiau ir ramiau, entuziastingam – gyviau.\n" +
+      "- Girdėk, kas už klausimo: jei klausimas rodo didesnį rūpestį ar tikslą, atsakyk į jį, o tada vienu sakiniu paminėk, ko jis galbūt dar nepagalvojo.\n" +
+      "- Jei užklausa dviprasmiška ir klaida brangi, užduok vieną trumpą patikslinantį klausimą, o ne spėliok. Jei menka – spėk protingiausią variantą ir pasakyk, ką pasirinkai.\n" +
+      "- Naudok atmintį natūraliai: prisimink anksčiau minėtus projektus, nuotaikas, žmones, bet tik kai tai keičia atsakymą. Niekada nesakyk „remiantis atmintimi“.\n" +
+      "- Atviri reikalai: jei atmintyje yra neužbaigtas dalykas (egzaminas, skambutis, remontas), o pokalbis tam tinka, trumpai pasiteirauk, kaip sekėsi. Neperkalbėk ir nekartok to dažnai.\n" +
+      "- Tikrumas: jei esi neužtikrintas, pasakyk „spėju, bet nesu tikras“. Neišgalvok faktų, skaičių ar to, ką ‚prisimeni‘, jei nežinai.\n" +
+      "- Nuojauta: pastebėk pasikartojančias problemas, prieštaravimus ar rizikas (pvz., elektros, saugos, pinigų) ir švelniai įspėk pirmas, nelaukdamas klausimo.\n" +
+      "- Nebūk vienodas: nekartok tų pačių frazių, įžangų ir juokelių; reaguok į tai, ką žmogus pasakė, o ne šabloniškai.";
+    if (mem.lastSeen) {
+      var gap = Date.now() - mem.lastSeen, gh = gap / 36e5;
+      if (gh > 3) s += "\n\nPaskutinį kartą kalbėjotės prieš " + (gh < 24 ? Math.round(gh) + " val." : Math.round(gh / 24) + " d.") +
+        ". Jei tinka, pirmame atsakyme natūraliai užsimink apie tai, kas buvo aktualu tada, bet neverskite jo to aptarinėti.";
+    }
     if (window.__models && window.__currentModel) {
       var cm = window.__currentModel();
       s += "\n\nDabar veiki modeliu " + cm.name + ". Galimi modeliai: " +
@@ -1638,9 +1653,10 @@
     }
     if (mem.summary) s += "\n\nTavo ilgalaikė santrauka apie žmogų ir jūsų pokalbius (naudokis ja natūraliai, necituok jos):\n" + mem.summary;
     if (mem.notes.length) s += "\n\nKą esi įsiminęs iš ankstesnių pokalbių:\n- " + mem.notes.join("\n- ");
-    s += "\n\nJei žmogus paprašo ką nors įsiminti arba pasako ilgalaikį faktą apie save (vardą, pomėgį, planą), " +
+    s += "\n\nJei žmogus paprašo ką nors įsiminti arba pasako ilgalaikį faktą apie save (vardą, pomėgį, planą, žmogų, projektą), " +
       "arba pasako, kaip jam patinka gauti atsakymus, iškviesk įrankį remember su vienu trumpu faktu ir tada atsakyk įprastai. " +
-      "Nekartok jau įsimintų faktų.";
+      "Įsimink ir neužbaigtus reikalus (kind=open), pvz. „rytoj turi skambinti dėl inverterio“, ir žmonių bei projektų detales. " +
+      "Pasenusį ar klaidingą faktą pašalink įrankiu forget. Nekartok jau įsimintų faktų.";
     return s;
   }
 
@@ -1655,14 +1671,14 @@
   function maybeSummarize() {
     if (summarizing || !sample) return;
     var weekly = mem.summaryAt && Date.now() - mem.summaryAt > 7 * 864e5 && mem.history.length >= 8;
-    if (mem.history.length <= 20 && !weekly) return;
-    var take = mem.history.length > 20 ? 12 : Math.min(8, mem.history.length - 2);
+    if (mem.history.length <= 34 && !weekly) return;
+    var take = mem.history.length > 34 ? 14 : Math.min(8, mem.history.length - 2);
     var chunk = mem.history.slice(0, take);
     var talkText = chunk.map(function (m) { return (m.role === "user" ? "Žmogus: " : "Asistentas: ") + m.content; }).join("\n");
     var prompt =
       "Tu tvarkai asmeninio balso asistento ilgalaikę atmintį. Žemiau yra esama santrauka ir naujas pokalbio fragmentas. " +
       "Parašyk atnaujintą santrauką lietuviškai: kas šis žmogus, jo darbai ir projektai, planai, pomėgiai, kaip jam patinka bendrauti, " +
-      "jūsų vidiniai juokeliai ir svarbūs neužbaigti dalykai. Sujunk su esama santrauka, pašalink pasikartojimus ir pasenusius dalykus, " +
+      "jūsų vidiniai juokeliai, svarbūs neužbaigti dalykai, žmonės jo gyvenime, kas jį vargina ar džiugina, kokiu paros metu ir kokia nuotaika jis dažniausiai kalba. Sujunk su esama santrauka, pašalink pasikartojimus ir pasenusius dalykus, " +
       "rašyk trumpais punktais su brūkšneliu, iš viso iki 1500 simbolių. Neįtrauk slaptažodžių, raktų, banko ar asmens kodų duomenų. " +
       "Grąžink tik santrauką, be įžangos.\n\nESAMA SANTRAUKA:\n" + (mem.summary || "(dar nėra)") +
       "\n\nNAUJAS FRAGMENTAS:\n" + talkText;
@@ -1677,7 +1693,7 @@
       renderSummary();
       persist("memory");
     }).catch(function () {
-      if (mem.history.length > 36) { mem.history = mem.history.slice(-24); persist("memory"); }
+      if (mem.history.length > 50) { mem.history = mem.history.slice(-34); persist("memory"); }
     }).then(function () { summarizing = false; });
   }
 
@@ -1695,16 +1711,35 @@
   var rememberTool = {
     name: "remember",
     description: "Įsimena vieną trumpą ilgalaikį faktą apie žmogų, kad jis būtų žinomas kituose pokalbiuose.",
-    inputSchema: { type: "object", properties: { fact: { type: "string", description: "Faktas vienu sakiniu" } }, required: ["fact"] },
+    inputSchema: { type: "object", properties: {
+      fact: { type: "string", description: "Faktas vienu sakiniu" },
+      kind: { type: "string", enum: ["fact", "preference", "person", "project", "open"], description: "Rūšis: open = neužbaigtas reikalas, kurio paskui paklausti" }
+    }, required: ["fact"] },
     execute: function (inp) {
       var fact = String((inp && inp.fact) || "").trim().slice(0, 300);
       if (!fact) throw new Error("Tuščias faktas");
+      var tag = { preference: "[pomėgis] ", person: "[žmogus] ", project: "[projektas] ", open: "[neužbaigta] " }[inp && inp.kind];
+      if (tag) fact = tag + fact;
       if (mem.notes.indexOf(fact) === -1) {
         if (mem.notes.length >= 40) mem.notes.shift();
         mem.notes.push(fact);
         renderNotes();
       }
       return { saved: true };
+    }
+  };
+
+  var forgetTool = {
+    name: "forget",
+    description: "Pašalina pasenusį ar klaidingą įsimintą faktą (pagal atitinkančius žodžius) arba atliktą neužbaigtą reikalą.",
+    inputSchema: { type: "object", properties: { match: { type: "string", description: "Žodžiai iš šalintino fakto" } }, required: ["match"] },
+    execute: function (inp) {
+      var q = String((inp && inp.match) || "").toLowerCase().trim();
+      if (q.length < 3) throw new Error("Per trumpa");
+      var n = mem.notes.length;
+      mem.notes = mem.notes.filter(function (x) { return x.toLowerCase().indexOf(q) === -1; });
+      renderNotes();
+      return { removed: n - mem.notes.length };
     }
   };
 
@@ -1723,9 +1758,10 @@
     setState("thinking");
 
     mem.history.push({ role: "user", content: question });
-    var recent = mem.history.slice(-12);
+    var recent = mem.history.slice(-24);
     while (recent.length && recent[0].role !== "user") recent.shift();
     var lead = instructions();
+    mem.lastSeen = Date.now();
     var messages = recent.map(function (m, i) {
       return i === 0 ? { role: m.role, content: lead + "\n\n" + m.content } : { role: m.role, content: m.content };
     });
@@ -1736,7 +1772,7 @@
     sample(messages, {
       modelTier: "quick",
       cache: false,
-      tools: window.__models ? [rememberTool, switchModelTool] : [rememberTool],
+      tools: window.__models ? [rememberTool, forgetTool, switchModelTool] : [rememberTool, forgetTool],
       onText: function (e) {
         var shown = splitMood(e.text).text;
         if (shown && !holdText()) { bubble.textContent = shown; captionEl.textContent = shown; scrollTalk(); }
@@ -1754,6 +1790,7 @@
         captionEl.textContent = bubble.textContent;
       }
       if (answer) mem.history.push({ role: "assistant", content: answer });
+      mem.lastSeen = Date.now();
       else mem.history.pop();
       persist("memory");
       maybeSummarize();
