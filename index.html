@@ -163,6 +163,15 @@
     background: rgba(7, 12, 26, 0.96);
   }
   #panel[hidden] { display: none; }
+  .panel-foot {
+    position: sticky; bottom: 0; margin: 14px -18px -28px; padding: 12px 18px 18px;
+    background: rgba(7, 12, 26, 0.98); border-top: 1px solid var(--line);
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .panel-foot .foot-btns { display: flex; gap: 10px; }
+  .panel-foot .foot-btns button { flex: 1 1 0; margin-top: 0; align-self: stretch; }
+  .panel-foot button.save { background: var(--ember); color: #1a0d02; border-color: var(--ember); font-weight: 600; }
+  .panel-foot.dirty #dirtyNote { color: var(--ember); }
   .panel-in {
     max-width: 520px; margin: 0 auto; padding: 16px 18px 28px;
     display: flex; flex-direction: column; gap: 10px;
@@ -405,6 +414,14 @@
 
       <button type="button" id="clearChat" class="wide">Išvalyti pokalbį</button>
       <p class="hint" id="syncNote">Tikrinu, kur saugoti duomenis…</p>
+
+      <div class="panel-foot">
+        <p class="hint" id="dirtyNote" aria-live="polite">Pakeitimai įsigalios tik paspaudus „Išsaugoti“.</p>
+        <div class="foot-btns">
+          <button type="button" id="cancelPanel" class="wide">Atšaukti</button>
+          <button type="button" id="savePanel" class="wide save">Išsaugoti</button>
+        </div>
+      </div>
     </div>
   </section>
 
@@ -417,6 +434,12 @@
   .keys .fx input { grid-column: 1 / -1; width: 100%; accent-color: var(--ember); }
   .keys .fx output { color: var(--ice); font-variant-numeric: tabular-nums; }
   .keys button.wide { margin-top: 0; }
+  .keys .file-btn {
+    position: relative; overflow: hidden; display: inline-block; cursor: pointer;
+    font: inherit; font-size: 14px; color: var(--ice); padding: 10px 18px; margin: 0;
+    border: 1px solid var(--line); border-radius: 999px; background: rgba(88, 184, 255, 0.06);
+  }
+  .keys .file-btn input { position: absolute; inset: 0; opacity: 0; cursor: pointer; font-size: 100px; }
 </style>
 <script>
 /* Standalone bridge: gives the page the same window.claude.use() it has inside claude.ai,
@@ -436,7 +459,20 @@
   } catch (e) {}
   var searchBroken = false;
   window.__canSearch = function () { return K.search === "on" && !searchBroken; };
-  function save() { try { localStorage.setItem(CFG_KEY, JSON.stringify(K)); } catch (e) {} }
+  var drafting = false, snapK = null, onDirty = function () {}, syncInputs = function () {};
+  function save() {
+    if (drafting) { onDirty(); return; }
+    try { localStorage.setItem(CFG_KEY, JSON.stringify(K)); } catch (e) {}
+  }
+  window.__cfgDraft = {
+    begin: function (cb) { drafting = true; onDirty = cb || function () {}; snapK = JSON.parse(JSON.stringify(K)); },
+    commit: function () { drafting = false; save(); refresh(); },
+    cancel: function () {
+      drafting = false;
+      if (snapK) Object.keys(snapK).forEach(function (k) { K[k] = snapK[k]; });
+      syncInputs(); applyFx(); refresh();
+    }
+  };
   function status(id, ok, text) { var li = document.getElementById(id); if (li) { li.className = ok ? "ok" : "no"; li.textContent = text; } }
 
   /* ---------- brain: Anthropic Messages API ---------- */
@@ -751,6 +787,56 @@
       i.addEventListener("input", function () { K.fx[f[0]] = parseFloat(i.value); o.textContent = i.value; applyFx(f[0]); save(); });
       w.appendChild(o); w.appendChild(i); box.appendChild(w);
     });
+    syncInputs = function () {
+      var set = function (id, v) { var e = document.getElementById(id); if (e) e.value = v; };
+      set("kAn", K.anKey); set("kAnModel", K.anModel); set("kEl", K.elKey);
+      set("kVoiceId", K.elVoice); set("kElModel", K.elModel);
+      cb.checked = K.search === "on";
+      fill(K.elVoice ? [{ voice_id: K.elVoice, name: K.elVoiceName || K.elVoice }] : []);
+      FX.forEach(function (f) {
+        set("fx-" + f[0], K.fx[f[0]]);
+        var o = document.getElementById("fx-" + f[0]).previousElementSibling;
+        if (o) o.textContent = String(K.fx[f[0]]);
+      });
+    };
+
+    /* backup: everything (keys, settings, memory) into one file and back */
+    box.appendChild(el("h3", null, "Atsarginė kopija"));
+    box.appendChild(el("p", { "class": "hint" }, "Faile bus ir tavo raktai, todėl laikyk jį saugiai ir niekam nesiųsk."));
+    var brow = el("div", { "class": "rowx" });
+    var exp = el("button", { type: "button", "class": "wide" }, "Išsaugoti į failą");
+    var impLabel = el("label", { "class": "wide file-btn" }, "Atkurti iš failo");
+    var imp = el("input", { type: "file", id: "kImport", accept: ".json,application/json" });
+    impLabel.appendChild(imp);
+    var bnote = el("p", { "class": "hint", "aria-live": "polite" });
+    exp.addEventListener("click", function () {
+      var data = { app: "klaudijus", v: 1, cfg: K, main: null };
+      try { data.main = JSON.parse(localStorage.getItem("asist.v2") || "null"); } catch (e) {}
+      var blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      var a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "klaudijus-kopija-" + new Date().toISOString().slice(0, 10) + ".json";
+      document.body.appendChild(a); a.click(); a.remove();
+      bnote.textContent = "Failas išsaugotas aplanke „Atsisiuntimai“.";
+    });
+    imp.addEventListener("change", function () {
+      var f = imp.files && imp.files[0];
+      if (!f) return;
+      var r = new FileReader();
+      r.onload = function () {
+        try {
+          var d = JSON.parse(r.result);
+          if (!d || d.app !== "klaudijus" || !d.cfg) throw new Error("ne tas failas");
+          localStorage.setItem(CFG_KEY, JSON.stringify(d.cfg));
+          if (d.main) localStorage.setItem("asist.v2", JSON.stringify(d.main));
+          bnote.textContent = "Atkurta. Perkraunu…";
+          setTimeout(function () { location.reload(); }, 600);
+        } catch (e) { bnote.textContent = "Nepavyko perskaityti: tai ne Klaudijaus kopijos failas."; }
+      };
+      r.readAsText(f);
+    });
+    brow.appendChild(exp); brow.appendChild(impLabel); box.appendChild(brow); box.appendChild(bnote);
+
     head.insertAdjacentElement("afterend", box);
     setTimeout(refresh, 600); setTimeout(refresh, 2500);
     if (location.protocol === "file:") {
@@ -846,7 +932,14 @@
   } catch (e) {}
 
   var store = null, chain = Promise.resolve(), warned = false;
+  var drafting = false, snap = null, dirtyFlag = false;
+  function markDirty() {
+    dirtyFlag = true;
+    document.querySelector(".panel-foot").classList.add("dirty");
+    $("dirtyNote").textContent = "Yra neišsaugotų pakeitimų.";
+  }
   function persist(which) {
+    if (drafting) { markDirty(); return; }
     try { localStorage.setItem(LS, JSON.stringify({ settings: settings, mem: mem })); } catch (e) {}
     if (!store) return;
     var ref = store[which];
@@ -937,9 +1030,38 @@
 
   applySettings(); renderNotes(); renderTalk();
 
-  $("gear").addEventListener("click", function () { panel.hidden = false; $("closePanel").focus(); });
-  $("closePanel").addEventListener("click", function () { panel.hidden = true; $("gear").focus(); });
-  document.addEventListener("keydown", function (e) { if (e.key === "Escape" && !panel.hidden) panel.hidden = true; });
+  function openPanel() {
+    snap = { settings: JSON.parse(JSON.stringify(settings)), mem: JSON.parse(JSON.stringify(mem)) };
+    drafting = true; dirtyFlag = false;
+    document.querySelector(".panel-foot").classList.remove("dirty");
+    $("dirtyNote").textContent = "Pakeitimai įsigalios tik paspaudus „Išsaugoti“.";
+    if (window.__cfgDraft) window.__cfgDraft.begin(markDirty);
+    panel.hidden = false; $("closePanel").focus();
+  }
+  function closePanel() { panel.hidden = true; drafting = false; $("gear").focus(); }
+  function savePanel() {
+    drafting = false;
+    persist("settings"); persist("memory");
+    if (window.__cfgDraft) window.__cfgDraft.commit();
+    closePanel();
+  }
+  function cancelPanel() {
+    drafting = false;
+    if (snap) { settings = snap.settings; mem = snap.mem; }
+    applySettings(); renderNotes(); renderTalk();
+    if (window.__cfgDraft) window.__cfgDraft.cancel();
+    closePanel();
+  }
+  function tryClose() {
+    if (!dirtyFlag) { cancelPanel(); return; }
+    $("dirtyNote").textContent = "Yra neišsaugotų pakeitimų. Spausk „Išsaugoti“ arba „Atšaukti“.";
+    $("savePanel").focus();
+  }
+  $("gear").addEventListener("click", openPanel);
+  $("closePanel").addEventListener("click", tryClose);
+  $("savePanel").addEventListener("click", savePanel);
+  $("cancelPanel").addEventListener("click", cancelPanel);
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape" && !panel.hidden) tryClose(); });
 
   setName.addEventListener("change", function () {
     settings.name = setName.value.trim().slice(0, 30) || "Asistentas";
@@ -1086,9 +1208,18 @@
             rec.onend = function () { if (started) cbS({ state: "idle", reason: "stopped" }); };
             rec.onresult = function (e) {
               /* rebuild the whole phrase every time: Android repeats words when pieces are appended */
-              var whole = "";
-              for (var i = 0; i < e.results.length; i++) whole += " " + e.results[i][0].transcript;
-              cbP({ text: whole.replace(/\s+/g, " ").trim() });
+              /* Android often sends each piece again together with everything before it:
+                 keep a piece only if it adds something new */
+              var acc = "";
+              for (var i = 0; i < e.results.length; i++) {
+                var t = String(e.results[i][0].transcript || "").replace(/\s+/g, " ").trim();
+                if (!t) continue;
+                var A = acc.toLowerCase(), T = t.toLowerCase();
+                if (!acc || T.indexOf(A) === 0) acc = t;
+                else if (A.indexOf(T) !== -1) continue;
+                else acc += " " + t;
+              }
+              cbP({ text: acc });
             };
             rec.start();
           } catch (err) { rej({ code: "error" }); }
