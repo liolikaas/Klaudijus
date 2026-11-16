@@ -285,7 +285,10 @@
 
   @media (max-width: 820px) {
     .side { width: auto; left: 12px; right: 12px; }
-    .side.left { top: auto; bottom: 88px; max-height: 30vh; }
+    .side.left { top: auto; bottom: 84px; max-height: 18vh; padding: 8px 12px; gap: 6px; }
+    .side.left h2 { display: none; }
+    .side.left .msg.bot { font-size: 14px; }
+    .side.left .msg.you, .side.left .msg.note { font-size: 13px; }
     .side.right { top: 58px; bottom: auto; max-height: 42vh; }
     h1 { font-size: 13px; }
   }
@@ -1006,7 +1009,7 @@
     tChat.setAttribute("aria-pressed", String(settings.chat));
     tInfo.setAttribute("aria-pressed", String(settings.info));
     document.body.classList.toggle("chat-closed", !settings.chat);
-    orbY = narrow() ? (settings.chat ? 0.36 : 0.44) : 0.47;
+    orbY = narrow() ? (settings.chat ? 0.4 : 0.44) : 0.47;
     if (settings.chat) scrollTalk();
   }
   tChat.addEventListener("click", function () { settings.chat = !settings.chat; applyLayout(); persist("settings"); });
