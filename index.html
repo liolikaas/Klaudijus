@@ -1573,7 +1573,32 @@
 
   /* far stars */
   var stars = [];
-  for (var i = 0; i < 170; i++) stars.push({ x: Math.random(), y: Math.random(), d: 0.2 + Math.random() * 0.8, ph: Math.random() * 6.28 });
+  for (var i = 0; i < 280; i++) stars.push({ x: Math.random(), y: Math.random(), d: 0.2 + Math.random() * 0.8, ph: Math.random() * 6.28 });
+  /* distant galaxies: small smudges made of a few points, bent into arcs near the sphere */
+  var galaxies = [];
+  for (var i = 0; i < 9; i++) {
+    var g = { x: Math.random(), y: Math.random(), rot: Math.random() * 3.14, len: 6 + Math.random() * 10, c: i % 3, pts: [] };
+    for (var k = 0; k < 14; k++) g.pts.push([(Math.random() - 0.5) * 2, (Math.random() - 0.5) * 0.5, Math.random()]);
+    galaxies.push(g);
+  }
+
+  /* gravitational lens: where a point behind the sphere appears to the viewer.
+     returns the main image (outside the ring), its tangential stretch, and the faint
+     second image on the opposite side (inside the ring) */
+  var LX = 0, LY = 0, LE = 1;
+  function lens(x, y) {
+    var dx = x - LX, dy = y - LY, b = Math.sqrt(dx * dx + dy * dy);
+    if (b < 0.5) b = 0.5;
+    var root = Math.sqrt(b * b + 4 * LE * LE);
+    var tp = (b + root) / 2, tm = (b - root) / 2;
+    var ux = dx / b, uy = dy / b;
+    return { x: LX + ux * tp, y: LY + uy * tp, x2: LX + ux * tm, y2: LY + uy * tm,
+      r2: -tm, st: tp / b, st2: -tm / b, tx: -uy, ty: ux };
+  }
+
+  /* two particle jets leaving the poles */
+  var JN = 150, jets = [];
+  for (var i = 0; i < JN * 2; i++) jets.push({ side: i < JN ? 1 : -1, d: Math.random(), sp: 0.25 + Math.random() * 0.35, ph: Math.random() * 6.283, sp2: 0.6 + Math.random() * 0.8, s: Math.random() });
 
   /* nebula clouds drifting around the core */
   var clouds = [
@@ -1667,6 +1692,53 @@
   for (var i = 0; i < M; i++) {
     var y0 = 1 - (i / (M - 1)) * 2, rad0 = Math.sqrt(1 - y0 * y0), th0 = golden * i;
     inner.push({ x: Math.cos(th0) * rad0, y: y0, z: Math.sin(th0) * rad0, s: Math.random() });
+  }
+
+  function drawJets(front, cx, cy, R, t, dt) {
+    /* the axis leans toward the viewer and slowly wobbles */
+    var prec = calm ? 0.6 : t * 0.12;
+    var ax = 0.22 * Math.sin(prec), ay = -1, az = 0.42 + 0.12 * Math.cos(prec * 1.3);
+    var al = Math.sqrt(ax * ax + ay * ay + az * az); ax /= al; ay /= al; az /= al;
+    /* two directions across the axis */
+    var ux = ay, uy = -ax, uz = 0, ul = Math.sqrt(ux * ux + uy * uy) || 1; ux /= ul; uy /= ul;
+    var vx = ay * uz - az * uy, vy = az * ux - ax * uz, vz = ax * uy - ay * ux;
+    var power = 0.35 + level * 1.3 + (warmth > 0.5 ? 0.15 : 0);
+    var reach = R * (1.7 + level * 1.8);
+    var col = blend(blend(ICE, VIOLET, 0.35), EMBER, warmth * 0.75);
+
+    /* faint beam along each jet */
+    for (var side = -1; side <= 1; side += 2) {
+      if ((az * side > 0) !== front) continue;
+      var bx = cx + ax * side * R, by = cy + ay * side * R;
+      var ex = cx + ax * side * (R + reach), ey = cy + ay * side * (R + reach);
+      var bg = ctx.createLinearGradient(bx, by, ex, ey);
+      bg.addColorStop(0, rgba(col, 0.18 * power));
+      bg.addColorStop(1, rgba(col, 0));
+      ctx.strokeStyle = bg; ctx.lineCap = "round";
+      ctx.lineWidth = 5 + level * 6; ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(ex, ey); ctx.stroke();
+      ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(ex, ey); ctx.stroke();
+    }
+
+    for (var i = 0; i < jets.length; i++) {
+      var p = jets[i];
+      if (dt) {
+        p.d += dt * p.sp * (calm ? 0.25 : 0.6 + level * 2.4);
+        if (p.d > 1) { p.d -= 1; p.ph = Math.random() * 6.283; p.s = Math.random(); }
+      }
+      var sd = p.side;
+      if ((az * sd > 0) !== front) continue;
+      var dist = R + p.d * reach;
+      var spread = R * (0.04 + p.d * 0.32) * (0.6 + p.s * 0.8);
+      var ang = p.ph + p.d * 7 * p.sp2 + t * 0.6 * sd;
+      var ox = (ux * Math.cos(ang) + vx * Math.sin(ang)) * spread, oy = (uy * Math.cos(ang) + vy * Math.sin(ang)) * spread;
+      var px = cx + ax * sd * dist + ox, py = cy + ay * sd * dist + oy;
+      var back = R * (0.05 + level * 0.14) * p.sp * 3;
+      var qx = px - ax * sd * back, qy = py - ay * sd * back;
+      var fade = Math.sin(Math.PI * Math.min(1, p.d * 1.15)) * (0.25 + p.s * 0.75);
+      ctx.strokeStyle = rgba(p.s > 0.85 ? EMBER : col, Math.min(1, fade * power));
+      ctx.lineWidth = 0.6 + p.s * 1.2 * (1 - p.d * 0.6);
+      ctx.beginPath(); ctx.moveTo(qx, qy); ctx.lineTo(px, py); ctx.stroke();
+    }
   }
 
   var mood = "calm", moodUntil = 0;
@@ -1766,18 +1838,50 @@
     var tint = EMBER;
     var coreCol = blend(ICE, EMBER, warmth);
 
-    /* stars */
+    /* stars, bent by the gravitational lens around the sphere */
+    LX = cx; LY = cy; LE = R * (1.32 + level * 0.12);
     for (var i = 0; i < stars.length; i++) {
       var s = stars[i];
       var sx = ((s.x + t * 0.004 * s.d) % 1) * W, sy = s.y * H;
       var tw = calm ? 0.6 : 0.45 + 0.55 * Math.sin(t * (0.8 + s.d * 2) + s.ph);
-      ctx.fillStyle = rgba(s.d > 0.85 ? EMBER : ICE, 0.12 + 0.5 * s.d * tw);
+      var col = s.d > 0.85 ? EMBER : ICE;
       var ss = 0.6 + s.d * 1.1;
-      ctx.fillRect(sx, sy, ss, ss);
-      if (s.d > 0.93) {
-        var fl2 = 3 + 5 * tw;
-        ctx.fillRect(sx - fl2, sy + ss / 2 - 0.25, fl2 * 2 + ss, 0.5);
-        ctx.fillRect(sx + ss / 2 - 0.25, sy - fl2, 0.5, fl2 * 2 + ss);
+      var L = lens(sx, sy);
+      var a1 = Math.min(1, (0.12 + 0.5 * s.d * tw) * Math.min(2.2, Math.sqrt(L.st)));
+      ctx.fillStyle = rgba(col, a1);
+      if (L.st < 1.25) {
+        ctx.fillRect(L.x, L.y, ss, ss);
+        if (s.d > 0.93) {
+          var fl2 = 3 + 5 * tw;
+          ctx.fillRect(L.x - fl2, L.y + ss / 2 - 0.25, fl2 * 2 + ss, 0.5);
+          ctx.fillRect(L.x + ss / 2 - 0.25, L.y - fl2, 0.5, fl2 * 2 + ss);
+        }
+      } else {
+        /* stretched along the ring into a short arc */
+        var ln = Math.min(46, ss * L.st * 2.2);
+        ctx.strokeStyle = ctx.fillStyle; ctx.lineWidth = ss * 0.9; ctx.lineCap = "round";
+        ctx.beginPath(); ctx.moveTo(L.x - L.tx * ln / 2, L.y - L.ty * ln / 2); ctx.lineTo(L.x + L.tx * ln / 2, L.y + L.ty * ln / 2); ctx.stroke();
+      }
+      /* the faint second image on the other side of the sphere */
+      if (L.r2 > R * 1.04) {
+        var ln2 = Math.min(30, ss * L.st2 * 2.2 + 2);
+        ctx.strokeStyle = rgba(col, a1 * 0.45); ctx.lineWidth = ss * 0.7;
+        ctx.beginPath(); ctx.moveTo(L.x2 - L.tx * ln2 / 2, L.y2 - L.ty * ln2 / 2); ctx.lineTo(L.x2 + L.tx * ln2 / 2, L.y2 + L.ty * ln2 / 2); ctx.stroke();
+      }
+    }
+
+    /* distant galaxies, bent into arcs when they pass behind */
+    for (var i = 0; i < galaxies.length; i++) {
+      var g = galaxies[i];
+      var gx = ((g.x + t * 0.0025) % 1) * W, gy = g.y * H, cr = Math.cos(g.rot), sr = Math.sin(g.rot);
+      var gc = g.c === 0 ? VIOLET : g.c === 1 ? TEAL : EMBER;
+      for (var k = 0; k < g.pts.length; k++) {
+        var q = g.pts[k], px0 = gx + (q[0] * cr - q[1] * sr) * g.len, py0 = gy + (q[0] * sr + q[1] * cr) * g.len;
+        var L = lens(px0, py0);
+        ctx.fillStyle = rgba(gc, (0.08 + q[2] * 0.12) * Math.min(2.5, Math.sqrt(L.st)));
+        var gs = 1 + q[2] * 1.4;
+        ctx.fillRect(L.x, L.y, gs, gs);
+        if (L.r2 > R * 1.04) { ctx.fillStyle = rgba(gc, 0.05 + q[2] * 0.06); ctx.fillRect(L.x2, L.y2, gs, gs); }
       }
     }
 
@@ -1808,14 +1912,27 @@
         var yy = th.y + th.amp * Math.sin(u * th.k * 6.283 + tt * th.sp + th.ph)
                       + th.amp * 0.5 * Math.sin(u * th.k * 11 - tt * th.sp * 1.7 + th.ph * 2);
         var xx = (u * 1.2 - 0.1) * W, yp = yy * H;
-        /* threads bend around the sphere instead of crossing it */
-        var dx = xx - cx, dy = yp - cy, dd = Math.sqrt(dx * dx + dy * dy) || 1, clear = R * 1.5;
-        if (dd < clear) { yp = cy + (dy >= 0 ? 1 : -1) * Math.sqrt(Math.max(0, clear * clear - dx * dx)); }
-        if (k === 0) ctx.moveTo(xx, yp); else ctx.lineTo(xx, yp);
+        /* threads are light too: the lens bends them around the sphere */
+        var Lt = lens(xx, yp);
+        if (k === 0) ctx.moveTo(Lt.x, Lt.y); else ctx.lineTo(Lt.x, Lt.y);
       }
       ctx.stroke();
     }
 
+    /* Einstein ring: a thin, uneven circle of bent light */
+    var ringR = LE;
+    for (var pass = 0; pass < 3; pass++) {
+      ctx.lineWidth = pass === 0 ? 14 : pass === 1 ? 4 : 1.1;
+      var base = pass === 0 ? 0.035 : pass === 1 ? 0.06 : 0.22;
+      for (var k = 0; k < 48; k++) {
+        var a0 = k / 48 * 6.283, a1r = (k + 1.05) / 48 * 6.283;
+        var shimmer = 0.55 + 0.45 * Math.sin(a0 * 3 + t * 0.7) * Math.sin(a0 * 5 - t * 0.45);
+        ctx.strokeStyle = rgba(blend(ICE, EMBER, warmth * 0.7), (base + level * base * 1.5) * shimmer);
+        ctx.beginPath(); ctx.arc(cx, cy, ringR, a0, a1r); ctx.stroke();
+      }
+    }
+
+    drawJets(false, cx, cy, R, t, dt);
     drawDust(false, cx, cy, R, t, tint);
 
     /* halo and core */
@@ -1921,6 +2038,7 @@
     }
 
     drawDust(true, cx, cy, R, t, tint);
+    drawJets(true, cx, cy, R, t, 0);
 
     /* meteors */
     if (!calm && now > nextMeteor) {
