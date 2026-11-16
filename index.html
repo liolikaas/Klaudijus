@@ -1,0 +1,1692 @@
+<!DOCTYPE html>
+<html lang="lt">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Klaudijus</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600&family=Syne:wght@600;700&display=swap" rel="stylesheet">
+<style>
+  /* Layout idea: one screen. A living particle sphere fills the top, the words
+     being said sit under it, and a single input bar is pinned to the bottom.
+     Single theme by choice: the page is a night sky the avatar lives in. */
+  :root {
+    color-scheme: dark;
+    --night: #070c1a;
+    --deep: #121a52;
+    --ice: #58b8ff;
+    --ember: #ff8a38;
+    --text: #e8eefb;
+    --muted: #8493b5;
+    --line: rgba(169, 216, 255, 0.18);
+    --violet: #a854ff;
+    --teal: #1cecba;
+    --danger: #ff8a8a;
+    --font-display: "Syne", "Trebuchet MS", sans-serif;
+    --font-body: "Manrope", system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: radial-gradient(120% 80% at 50% 30%, var(--deep) 0%, var(--night) 70%);
+    background-color: var(--night);
+    color: var(--text);
+    font-family: var(--font-body);
+    font-size: 16px;
+    line-height: 1.5;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px 18px 0;
+  }
+  h1 {
+    font-family: var(--font-display);
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    margin: 0;
+    color: var(--ice);
+  }
+  .state {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--muted);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 4px 12px;
+  }
+  .state i {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--muted);
+  }
+  body[data-state="listening"] .state i { background: var(--ice); }
+  body[data-state="thinking"] .state i { background: var(--ember); }
+  body[data-state="speaking"] .state i { background: var(--ember); box-shadow: 0 0 10px var(--ember); }
+
+  .stage { flex: 1 1 0; min-height: 180px; position: relative; }
+  canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+
+  .talk {
+    flex: 0 1 auto;
+    max-height: 38%;
+    overflow-y: auto;
+    padding: 0 18px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    max-width: 640px;
+    width: 100%;
+    margin: 0 auto;
+  }
+  .msg { margin: 0; overflow-wrap: anywhere; }
+  .msg.you { color: var(--muted); font-size: 14px; }
+  .msg.you::before { content: "Tu: "; color: var(--ice); }
+  .msg.bot { font-size: 18px; font-weight: 500; text-wrap: pretty; }
+  .msg.note { font-size: 13px; color: var(--muted); border-left: 2px solid var(--ember); padding-left: 10px; }
+  .msg.err { font-size: 14px; color: var(--danger); }
+
+  form {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    padding: 10px 16px 16px;
+    max-width: 640px;
+    width: 100%;
+    margin: 0 auto;
+  }
+  input[type="text"] {
+    flex: 1 1 auto;
+    min-width: 0;
+    font: inherit;
+    color: var(--text);
+    background: rgba(169, 216, 255, 0.06);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 12px 18px;
+  }
+  input[type="text"]::placeholder { color: var(--muted); }
+  button {
+    flex: 0 0 auto;
+    width: 48px; height: 48px;
+    border-radius: 50%;
+    border: 1px solid var(--line);
+    background: rgba(169, 216, 255, 0.06);
+    color: var(--ice);
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+    padding: 0;
+  }
+  button svg { width: 22px; height: 22px; }
+  button.send { background: var(--ice); color: var(--night); border-color: var(--ice); }
+  button:disabled { opacity: 0.4; cursor: default; }
+  button[aria-pressed="true"] { background: var(--ember); color: var(--night); border-color: var(--ember); }
+  button[hidden] { display: none; }
+  .top { display: flex; align-items: center; gap: 8px; }
+  button.small { width: 34px; height: 34px; }
+  button.small svg { width: 16px; height: 16px; }
+  .voice {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px;
+    padding: 0 18px; max-width: 640px; width: 100%; margin: 0 auto;
+    font-size: 13px; color: var(--muted);
+  }
+  .voice[hidden] { display: none; }
+  .voice select {
+    font: inherit; color: var(--text); background: var(--deep);
+    border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px;
+  }
+  .voice input[type="range"] { flex: 1 1 90px; min-width: 80px; accent-color: var(--ember); }
+  .voice select:focus-visible, .voice input:focus-visible { outline: 2px solid var(--ember); outline-offset: 2px; }
+  input:focus-visible, button:focus-visible { outline: 2px solid var(--ember); outline-offset: 2px; }
+  .clock { display: none; flex-direction: column; align-items: center; gap: 6px; padding: 0 18px 32px; text-align: center; }
+  body.ambient .clock { display: flex; }
+  body.ambient .talk, body.ambient form { display: none; }
+  #clockTime {
+    font-family: var(--font-display); font-weight: 700; line-height: 1;
+    font-size: clamp(56px, 17vw, 128px); font-variant-numeric: tabular-nums; color: var(--text);
+  }
+  #clockDate { font-size: 18px; color: var(--ice); }
+  #clockDate::first-letter { text-transform: uppercase; }
+  .clock small { font-size: 13px; color: var(--muted); margin-top: 6px; }
+  #panel {
+    position: fixed; inset: 0; z-index: 5; overflow-y: auto;
+    background: rgba(7, 12, 26, 0.96);
+  }
+  #panel[hidden] { display: none; }
+  .panel-in {
+    max-width: 520px; margin: 0 auto; padding: 16px 18px 28px;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .panel-head { display: flex; align-items: center; justify-content: space-between; }
+  .panel-in h2 { font-family: var(--font-display); font-size: 20px; margin: 0; }
+  .panel-in h3 { font-family: var(--font-display); font-size: 15px; margin: 12px 0 0; color: var(--ice); }
+  .panel-in label { font-size: 13px; color: var(--muted); margin-top: 6px; }
+  .panel-in input[type="text"], .panel-in select, .panel-in textarea {
+    font: inherit; color: var(--text); width: 100%;
+    background: rgba(88, 184, 255, 0.07); border: 1px solid var(--line);
+    border-radius: 14px; padding: 10px 14px; flex: none;
+  }
+  .panel-in select { background: var(--deep); }
+  .panel-in textarea { resize: vertical; min-height: 76px; }
+  .panel-in textarea:focus-visible, .panel-in select:focus-visible { outline: 2px solid var(--ember); outline-offset: 2px; }
+  .panel-in label.check { display: flex; gap: 10px; align-items: flex-start; font-size: 15px; color: var(--text); margin-top: 10px; }
+  .panel-in label.check[hidden] { display: none; }
+  .panel-in label.check input { width: 20px; height: 20px; flex: none; margin: 2px 0 0; accent-color: var(--ember); }
+  .panel-in .voice { padding: 0; margin-top: 8px; }
+  .panel-in .voice label { margin-top: 0; }
+  .panel-in .voice select { width: auto; border-radius: 999px; padding: 6px 12px; }
+  #notes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+  #notes li {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    border: 1px solid var(--line); border-radius: 12px; padding: 6px 6px 6px 12px; font-size: 14px;
+  }
+  #notes li span { overflow-wrap: anywhere; }
+  #notes li button { font-size: 18px; line-height: 1; }
+  .hint { font-size: 13px; color: var(--muted); margin: 0; }
+  .hint[hidden] { display: none; }
+  button.wide {
+    width: auto; height: auto; border-radius: 999px; padding: 10px 18px;
+    font: inherit; font-size: 14px; align-self: flex-start; margin-top: 12px;
+  }
+
+  /* --- cosmos-first layout: the avatar is the whole window, everything else floats on it --- */
+  body { display: block; position: relative; }
+  .stage { position: fixed; inset: 0; z-index: 0; min-height: 0; }
+  header { position: fixed; top: 0; left: 0; right: 0; z-index: 3; padding: 12px 16px 0; }
+  .side {
+    position: fixed; top: 62px; bottom: 96px; width: min(320px, 27vw); z-index: 2;
+    background: rgba(7, 12, 26, 0.5); border: 1px solid var(--line); border-radius: 16px;
+    padding: 14px; overflow-y: auto; -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .side.left { left: 16px; }
+  .side.right { right: 16px; }
+  .side[hidden] { display: none; }
+  .side h2 {
+    font-family: var(--font-display); font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--ice); margin: 4px 0 0;
+  }
+  .side .talk { max-height: none; overflow: visible; padding: 0; margin: 0; max-width: none; flex: none; }
+  .side .msg.bot { font-size: 15px; font-weight: 400; }
+  .plain { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; font-size: 14px; color: var(--text); }
+  .plain li { overflow-wrap: anywhere; }
+  .plain li.ok::before, .plain li.no::before {
+    content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 8px;
+  }
+  .plain li.ok::before { background: #39ff14; box-shadow: 0 0 8px #39ff14; }
+  .plain li.no::before { background: #ff3b3b; box-shadow: 0 0 8px #ff3b3b; }
+  .mini-clock { display: flex; flex-direction: column; }
+  #miniTime { font-family: var(--font-display); font-weight: 700; font-size: 44px; line-height: 1; font-variant-numeric: tabular-nums; }
+  #miniDate { font-size: 14px; color: var(--muted); }
+  #miniDate::first-letter { text-transform: uppercase; }
+  form {
+    position: fixed; left: 50%; transform: translateX(-50%); bottom: 16px; z-index: 3;
+    width: min(560px, calc(100% - 32px)); padding: 0; margin: 0; max-width: none;
+  }
+  form input[type="text"] { background: rgba(7, 12, 26, 0.6); }
+  .caption {
+    display: none; position: fixed; left: 50%; transform: translateX(-50%); bottom: 88px; z-index: 2;
+    width: min(640px, calc(100% - 32px)); margin: 0; text-align: center; font-size: 17px; font-weight: 500;
+    text-shadow: 0 1px 12px #000; overflow: hidden;
+    -webkit-box-orient: vertical; -webkit-line-clamp: 3;
+  }
+  body.chat-closed .caption { display: -webkit-box; }
+  .clock { position: fixed; left: 0; right: 0; bottom: 7%; z-index: 2; padding: 0 18px; }
+  body.ambient .side, body.ambient .caption, body.ambient form { display: none; }
+
+  /* microphone: red when off, neon green when listening */
+  #mic {
+    width: 54px; height: 54px; color: #ff3b3b; border: 2px solid #ff3b3b;
+    background: rgba(255, 59, 59, 0.1); box-shadow: 0 0 10px rgba(255, 59, 59, 0.55);
+  }
+  #mic[aria-pressed="true"] {
+    color: #06140a; background: #39ff14; border-color: #39ff14;
+    box-shadow: 0 0 14px #39ff14, 0 0 34px rgba(57, 255, 20, 0.7);
+    animation: micpulse 1.2s ease-in-out infinite;
+  }
+  @keyframes micpulse { 50% { box-shadow: 0 0 22px #39ff14, 0 0 54px rgba(57, 255, 20, 0.9); } }
+  @media (prefers-reduced-motion: reduce) { #mic[aria-pressed="true"] { animation: none; } }
+  button.small[aria-pressed="false"] { opacity: 0.5; background: transparent; color: var(--muted); border-color: var(--line); }
+  button.small[aria-pressed="true"] { background: rgba(88, 184, 255, 0.12); color: var(--ice); border-color: var(--ice); }
+
+  .side { width: min(290px, 23vw); background: rgba(7, 12, 26, 0.38); scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.28) transparent; }
+  .side::-webkit-scrollbar { width: 6px; }
+  .side::-webkit-scrollbar-track { background: transparent; }
+  .side::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.28); border-radius: 3px; }
+  .quick { display: flex; flex-direction: column; gap: 6px; }
+  .quick button {
+    width: auto; height: auto; border-radius: 12px; padding: 8px 12px; display: block;
+    font: inherit; font-size: 13px; text-align: left; color: var(--text);
+    background: rgba(255, 255, 255, 0.05); border: 1px solid var(--line);
+  }
+  .quick button:hover { border-color: var(--ice); color: var(--ice); }
+  form { width: min(640px, calc(100% - 32px)); }
+  form input[type="text"] { padding: 14px 20px; font-size: 17px; border-color: rgba(255, 255, 255, 0.28); }
+
+  @media (max-width: 820px) {
+    .side { width: auto; left: 12px; right: 12px; }
+    .side.left { top: auto; bottom: 88px; max-height: 30vh; }
+    .side.right { top: 58px; bottom: auto; max-height: 42vh; }
+    h1 { font-size: 13px; }
+  }
+</style>
+</head>
+<body data-state="idle">
+  <header>
+    <h1 id="title">Asistentas</h1>
+    <div class="top">
+      <span class="state" aria-live="polite"><i></i><span id="stateText">Laukiu</span></span>
+      <button type="button" id="tChat" class="small" aria-pressed="true" aria-label="Rodyti arba slėpti pokalbio tekstą">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v11H9l-5 4V5z"></path></svg>
+      </button>
+      <button type="button" id="tInfo" class="small" aria-pressed="true" aria-label="Rodyti arba slėpti šoninę skiltį">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M15 4v16"></path></svg>
+      </button>
+      <button type="button" id="gear" class="small" aria-label="Nustatymai">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"></path><circle cx="16" cy="7" r="2"></circle><circle cx="8" cy="17" r="2"></circle></svg>
+      </button>
+      <button type="button" id="full" class="small" aria-label="Visas ekranas">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"></path></svg>
+      </button>
+    </div>
+  </header>
+
+  <div class="stage"><canvas id="orb" aria-hidden="true"></canvas></div>
+
+  <aside class="side left" id="sideChat" aria-label="Pokalbis">
+    <h2>Pokalbis</h2>
+    <div class="talk" id="talk" aria-live="polite"></div>
+  </aside>
+
+  <aside class="side right" id="sideInfo" aria-label="Būsena ir atmintis">
+    <div class="mini-clock"><span id="miniTime">00:00</span><span id="miniDate"></span></div>
+    <h2>Būsena</h2>
+    <ul class="plain" id="status">
+      <li id="stBrain">Asistentas: tikrinu…</li>
+      <li id="stVoice">Balsas: tikrinu…</li>
+      <li id="stMic">Mikrofonas: tikrinu…</li>
+      <li id="stStore">Atmintis: tikrinu…</li>
+    </ul>
+    <h2>Ką prisimenu</h2>
+    <ul class="plain" id="notesMini"></ul>
+    <h2>Greiti klausimai</h2>
+    <div class="quick" id="quick"></div>
+  </aside>
+
+  <p class="caption" id="caption"></p>
+
+  <div class="clock" id="clock">
+    <span id="clockTime">00:00</span>
+    <span id="clockDate"></span>
+    <small>Paliesk ekraną, kai norėsi kalbėti</small>
+  </div>
+
+  <form id="form" autocomplete="off">
+    <button type="button" id="mic" hidden aria-pressed="false" aria-label="Kalbėti į mikrofoną">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"></rect><path d="M5 11a7 7 0 0 0 14 0M12 18v3"></path></svg>
+    </button>
+    <input type="text" id="text" placeholder="Parašyk klausimą" aria-label="Klausimas">
+    <button type="button" id="mute" hidden aria-pressed="false" aria-label="Išjungti balsą">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9v6h4l5 4V5L8 9H4z"></path><path d="M17 9a4 4 0 0 1 0 6"></path></svg>
+    </button>
+    <button type="submit" class="send" id="send" aria-label="Siųsti">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"></path></svg>
+    </button>
+  </form>
+
+  <section id="panel" hidden aria-label="Nustatymai">
+    <div class="panel-in">
+      <div class="panel-head">
+        <h2>Nustatymai</h2>
+        <button type="button" id="closePanel" class="small" aria-label="Uždaryti nustatymus">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+        </button>
+      </div>
+
+      <label for="setName">Asistento vardas</label>
+      <input type="text" id="setName" maxlength="30">
+
+      <label for="setUser">Kaip į tave kreiptis</label>
+      <input type="text" id="setUser" maxlength="30" placeholder="Tavo vardas">
+
+      <label for="setTone">Kaip jis kalba</label>
+      <select id="setTone">
+        <option value="draugiškai ir šiltai">Draugiškai</option>
+        <option value="ramiai ir rimtai">Rimtai</option>
+        <option value="žaismingai, su humoru">Su humoru</option>
+        <option value="labai trumpai ir dalykiškai">Trumpai ir dalykiškai</option>
+      </select>
+
+      <label for="setAbout">Ką jam žinoti apie tave</label>
+      <textarea id="setAbout" rows="3" maxlength="600" placeholder="Pvz.: mano vardas, kur gyvenu, kaip į mane kreiptis"></textarea>
+
+      <label for="setRules">Taisyklės jam (gali keisti savo žodžiais)</label>
+      <textarea id="setRules" rows="7" maxlength="1200"></textarea>
+
+      <label for="setTheme">Spalvų nuotaika</label>
+      <select id="setTheme">
+        <option value="auto">Pati keičiasi pagal paros laiką</option>
+        <option value="ledas">Ledas (mėlyna)</option>
+        <option value="ausra">Aušra (rožinė ir auksinė)</option>
+        <option value="miskas">Miškas (žalia)</option>
+        <option value="ugnis">Ugnis (raudona ir oranžinė)</option>
+        <option value="ukas">Ūkas (violetinė)</option>
+      </select>
+
+      <label class="check"><input type="checkbox" id="setAmbient"> <span>Namų ekranas: po minutės ramybės rodau laikrodį</span></label>
+
+      <label class="check" id="handsRow"><input type="checkbox" id="setHands"> <span>Rankų laisvė: po atsakymo vėl klausausi, o padiktuotą tekstą išsiunčiu pats po pauzės</span></label>
+
+      <div class="voice" id="voice" hidden>
+        <label for="voiceSel">Balsas</label>
+        <select id="voiceSel">
+          <option value="buttery">Švelnus</option>
+          <option value="airy">Lengvas</option>
+          <option value="glassy">Skaidrus</option>
+          <option value="rounded">Sodrus</option>
+        </select>
+        <label for="rate">Tempas</label>
+        <input type="range" id="rate" min="0.7" max="1.5" step="0.1" value="1">
+      </div>
+
+      <h3>Ką prisimenu</h3>
+      <ul id="notes"></ul>
+      <p class="hint" id="notesEmpty">Kol kas nieko. Pasakyk „įsimink, kad…“ ir įrašysiu.</p>
+
+      <button type="button" id="clearChat" class="wide">Išvalyti pokalbį</button>
+      <p class="hint" id="syncNote">Tikrinu, kur saugoti duomenis…</p>
+    </div>
+  </section>
+
+<style>
+  #voice { display: none !important; }
+  .keys { border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+  .keys h3 { margin: 0 !important; }
+  .keys .rowx { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .keys .fx { display: grid; grid-template-columns: 1fr auto; gap: 0 10px; font-size: 14px; }
+  .keys .fx input { grid-column: 1 / -1; width: 100%; accent-color: var(--ember); }
+  .keys .fx output { color: var(--ice); font-variant-numeric: tabular-nums; }
+  .keys button.wide { margin-top: 0; }
+</style>
+<script>
+/* Standalone bridge: gives the page the same window.claude.use() it has inside claude.ai,
+   but backed by your own API keys. Keys stay in this browser's localStorage. */
+(function () {
+  "use strict";
+  var CFG_KEY = "klaudijus.cfg";
+  var K = {
+    anKey: "", anModel: "claude-haiku-5-5",
+    elKey: "", elVoice: "", elVoiceName: "", elModel: "eleven_v4", search: "on",
+    fx: { tonas: 0.81, bosas: 12, tamsa: 0.3, siurkstumas: 0.15, aidas: 0.1, ilgis: 3, kartojimas: 0.05, dugnas: 0.05 }
+  };
+  try {
+    var saved = JSON.parse(localStorage.getItem(CFG_KEY) || "null");
+    if (saved) { Object.keys(K).forEach(function (k) { if (k !== "fx" && typeof saved[k] === "string") K[k] = saved[k]; });
+      if (saved.fx) Object.keys(K.fx).forEach(function (k) { if (typeof saved.fx[k] === "number") K.fx[k] = saved.fx[k]; }); }
+  } catch (e) {}
+  var searchBroken = false;
+  window.__canSearch = function () { return K.search === "on" && !searchBroken; };
+  function save() { try { localStorage.setItem(CFG_KEY, JSON.stringify(K)); } catch (e) {} }
+  function status(id, ok, text) { var li = document.getElementById(id); if (li) { li.className = ok ? "ok" : "no"; li.textContent = text; } }
+
+  /* ---------- brain: Anthropic Messages API ---------- */
+  function sample(messages, opts) {
+    opts = opts || {};
+    if (!K.anKey) return Promise.reject({ code: "no_key" });
+    var tools = opts.tools || [];
+    var msgs = (typeof messages === "string" ? [{ role: "user", content: messages }] : messages)
+      .map(function (m) { return { role: m.role, content: m.content }; });
+    var rounds = 0;
+    function call() {
+      var body = { model: K.anModel || "claude-haiku-5-5", max_tokens: 900, messages: msgs };
+      var list = tools.map(function (t) {
+        return { name: t.name, description: t.description, input_schema: t.inputSchema || { type: "object", properties: {} } };
+      });
+      var withSearch = window.__canSearch();
+      if (withSearch) list.push({ type: "web_search_20250305", name: "web_search", max_uses: 2 });
+      if (list.length) body.tools = list;
+      return fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST", signal: opts.signal,
+        headers: {
+          "x-api-key": K.anKey, "anthropic-version": "2023-06-01", "content-type": "application/json",
+          "anthropic-dangerous-direct-browser-access": "true"
+        },
+        body: JSON.stringify(body)
+      }).then(function (r) {
+        return r.json().catch(function () { return {}; }).then(function (d) { return { ok: r.ok, status: r.status, d: d }; });
+      }, function () { throw { code: "api_error", message: "nėra ryšio su api.anthropic.com" }; }).then(function (x) {
+        if (!x.ok && withSearch && x.status === 400) {
+          /* web search is not enabled for this API account: carry on without it */
+          searchBroken = true;
+          return call();
+        }
+        if (!x.ok) {
+          throw { code: x.status === 429 ? "rate_limited" : x.status === 401 ? "bad_key" : "api_error",
+            message: (x.d && x.d.error && x.d.error.message) || ("HTTP " + x.status) };
+        }
+        var text = "", uses = [];
+        (x.d.content || []).forEach(function (b) { if (b.type === "text") text += b.text; else if (b.type === "tool_use") uses.push(b); });
+        if (x.d.stop_reason === "tool_use" && uses.length && rounds < 3) {
+          rounds++;
+          msgs.push({ role: "assistant", content: x.d.content });
+          return Promise.all(uses.map(function (u) {
+            var t = tools.filter(function (tt) { return tt.name === u.name; })[0];
+            return Promise.resolve().then(function () { return t.execute(u.input); }).then(function (res) {
+              return { type: "tool_result", tool_use_id: u.id, content: JSON.stringify(res === undefined ? null : res) };
+            }, function (e) {
+              return { type: "tool_result", tool_use_id: u.id, content: String((e && e.message) || e), is_error: true };
+            });
+          })).then(function (results) { msgs.push({ role: "user", content: results }); return call(); });
+        }
+        if (x.d.stop_reason === "pause_turn" && rounds < 3) {
+          rounds++;
+          msgs.push({ role: "assistant", content: x.d.content });
+          return call();
+        }
+        if (opts.onText) opts.onText({ text: text, delta: text });
+        return { text: text, truncated: x.d.stop_reason === "max_tokens" };
+      });
+    }
+    return call();
+  }
+
+  /* ---------- voice: ElevenLabs through the "from the depths" chain ---------- */
+  var ctx = null, nodes = null, cur = null, stateCb = function () {}, lastLen = 0;
+  var bins = new Float32Array(32), freq = null;
+  function emit(state, reason) { try { stateCb({ state: state, reason: reason }); } catch (e) {} }
+  function curve(amount) {
+    var n = 1024, c = new Float32Array(n), k = amount * 40;
+    for (var i = 0; i < n; i++) { var x = i * 2 / n - 1; c[i] = k ? (1 + k) * x / (1 + k * Math.abs(x)) : x; }
+    return c;
+  }
+  function impulse(seconds) {
+    var len = Math.max(1, Math.floor(ctx.sampleRate * seconds)), buf = ctx.createBuffer(2, len, ctx.sampleRate);
+    for (var ch = 0; ch < 2; ch++) { var d = buf.getChannelData(ch); for (var i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.6); }
+    return buf;
+  }
+  function build() {
+    var n = {};
+    n.input = ctx.createGain(); n.subIn = ctx.createGain();
+    n.low = ctx.createBiquadFilter(); n.low.type = "lowshelf"; n.low.frequency.value = 180;
+    n.high = ctx.createBiquadFilter(); n.high.type = "lowpass"; n.high.Q.value = 0.5;
+    n.shape = ctx.createWaveShaper(); n.shape.oversample = "2x";
+    n.dry = ctx.createGain(); n.conv = ctx.createConvolver(); n.wet = ctx.createGain();
+    n.delay = ctx.createDelay(1.5); n.delay.delayTime.value = 0.36;
+    n.fb = ctx.createGain(); n.fb.gain.value = 0.35; n.echo = ctx.createGain();
+    n.comp = ctx.createDynamicsCompressor();
+    n.an = ctx.createAnalyser(); n.an.fftSize = 256; n.an.smoothingTimeConstant = 0.6;
+    n.out = ctx.createGain(); n.out.gain.value = 0.9;
+    n.input.connect(n.low); n.subIn.connect(n.low); n.low.connect(n.high); n.high.connect(n.shape);
+    n.shape.connect(n.dry); n.dry.connect(n.comp);
+    n.shape.connect(n.conv); n.conv.connect(n.wet); n.wet.connect(n.comp);
+    n.shape.connect(n.delay); n.delay.connect(n.fb); n.fb.connect(n.delay); n.delay.connect(n.echo); n.echo.connect(n.comp);
+    n.comp.connect(n.an); n.an.connect(n.out); n.out.connect(ctx.destination);
+    freq = new Uint8Array(n.an.frequencyBinCount);
+    return n;
+  }
+  function applyFx(key) {
+    if (!nodes) return;
+    var S = K.fx;
+    nodes.low.gain.value = S.bosas;
+    nodes.high.frequency.value = 16000 - S.tamsa * 13500;
+    if (!key || key === "siurkstumas") nodes.shape.curve = curve(S.siurkstumas);
+    nodes.dry.gain.value = 1 - S.aidas * 0.45;
+    nodes.wet.gain.value = S.aidas * 1.6;
+    nodes.echo.gain.value = S.kartojimas;
+    nodes.subIn.gain.value = S.dugnas * 0.9;
+    if (lastLen !== S.ilgis) { lastLen = S.ilgis; nodes.conv.buffer = impulse(S.ilgis); }
+    if (cur && cur.src) { cur.src.playbackRate.value = S.tonas; cur.sub.playbackRate.value = S.tonas / 2; }
+  }
+  window.__voiceMeter = function () {
+    if (!cur || !cur.src || !nodes) return null;
+    nodes.an.getByteFrequencyData(freq);
+    var sum = 0, per = Math.floor(80 / bins.length) || 1;
+    for (var i = 0; i < bins.length; i++) {
+      var v = 0; for (var j = 0; j < per; j++) v += freq[i * per + j];
+      bins[i] = Math.min(1, v / per / 190); sum += bins[i];
+    }
+    return { level: Math.min(1, sum / bins.length * 1.6), bins: bins };
+  };
+
+  function stopCur(reason) {
+    var c = cur; cur = null;
+    if (!c) return;
+    try { if (c.src) { c.src.onended = null; c.src.stop(); c.sub.stop(); } } catch (e) {}
+    try { if (c.abort) c.abort.abort(); } catch (e) {}
+    try { if (window.speechSynthesis) window.speechSynthesis.cancel(); } catch (e) {}
+    emit("idle", reason);
+    c.rej({ code: reason });
+  }
+  function browserSpeak(text, res, rej) {
+    if (!window.speechSynthesis) { rej({ code: "no_voice" }); return; }
+    var u = new SpeechSynthesisUtterance(text); u.lang = "lt-LT";
+    cur = { rej: rej };
+    u.onstart = function () { emit("speaking"); };
+    u.onend = function () { if (cur && cur.rej === rej) { cur = null; emit("idle", "completed"); res(); } };
+    u.onerror = function () { if (cur && cur.rej === rej) { cur = null; emit("idle", "error"); rej({ code: "tts_error" }); } };
+    window.speechSynthesis.cancel(); window.speechSynthesis.speak(u);
+  }
+  function speak(text) {
+    if (Array.isArray(text)) text = text.map(function (l) { return l.text; }).join(" ");
+    return new Promise(function (res, rej) {
+      stopCur("replaced");
+      if (!K.elKey || !K.elVoice) { browserSpeak(text, res, rej); return; }
+      var me = { rej: rej, abort: new AbortController() };
+      cur = me;
+      try { if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)(); if (ctx.state === "suspended") ctx.resume(); }
+      catch (e) { cur = null; rej({ code: "no_audio" }); return; }
+      fetch("https://api.elevenlabs.io/v1/text-to-speech/" + encodeURIComponent(K.elVoice) + "?output_format=mp3_44100_128", {
+        method: "POST", signal: me.abort.signal,
+        headers: { "xi-api-key": K.elKey, "content-type": "application/json" },
+        body: JSON.stringify({ text: String(text).slice(0, 1500), model_id: K.elModel || "eleven_v4", language_code: "lt" })
+      }).then(function (r) {
+        if (!r.ok) return r.json().catch(function () { return {}; }).then(function (d) {
+          var m = d && d.detail ? (d.detail.message || d.detail.status || JSON.stringify(d.detail)) : ("HTTP " + r.status);
+          throw { code: "tts_error", message: String(m) };
+        });
+        return r.arrayBuffer();
+      }).then(function (ab) {
+        return new Promise(function (ok, bad) { ctx.decodeAudioData(ab, ok, function () { bad({ code: "tts_error", message: "nepavyko perskaityti garso" }); }); });
+      }).then(function (buffer) {
+        if (cur !== me) return;
+        if (!nodes) nodes = build();
+        me.src = ctx.createBufferSource(); me.src.buffer = buffer; me.src.connect(nodes.input);
+        me.sub = ctx.createBufferSource(); me.sub.buffer = buffer; me.sub.connect(nodes.subIn);
+        applyFx();
+        me.src.onended = function () { if (cur === me) { cur = null; emit("idle", "completed"); res(); } };
+        me.src.start(); me.sub.start();
+        status("stVoice", true, "Balsas: ElevenLabs" + (K.elVoiceName ? " (" + K.elVoiceName + ")" : ""));
+        emit("speaking");
+      }).catch(function (err) {
+        if (cur !== me) return;
+        cur = null;
+        if (err && err.name === "AbortError") return;
+        status("stVoice", false, "Balsas: klaida. " + ((err && err.message) || "nepavyko pasiekti ElevenLabs"));
+        emit("idle", "error");
+        rej(err && err.code ? err : { code: "tts_error" });
+      });
+    });
+  }
+  var tts = {
+    speak: speak, add: speak,
+    stop: function () { stopCur("viewer_stopped"); },
+    onState: function (f) { stateCb = f; }, onLine: function () {}, onPosition: function () {},
+    pause: function () {}, resume: function () {}, setRate: function () {}
+  };
+
+  window.claude = {
+    use: function (name) {
+      return Promise.resolve(name === "sample" ? sample : name === "tts" ? tts : null);
+    }
+  };
+
+  /* ---------- settings section for keys, voice and sound ---------- */
+  var FX = [
+    ["tonas", "Tonas (mažiau = žemiau)", 0.55, 1.1, 0.01], ["bosas", "Bosas", 0, 20, 1], ["tamsa", "Tamsumas", 0, 1, 0.05],
+    ["siurkstumas", "Šiurkštumas", 0, 1, 0.05], ["aidas", "Erdvės aidas", 0, 1, 0.05], ["ilgis", "Aido ilgis", 0.5, 7, 0.5],
+    ["kartojimas", "Atkartojimas", 0, 0.6, 0.05], ["dugnas", "Gelmių dūzgesys", 0, 1, 0.05]
+  ];
+  function el(tag, attrs, text) {
+    var e = document.createElement(tag);
+    if (attrs) Object.keys(attrs).forEach(function (k) { e.setAttribute(k, attrs[k]); });
+    if (text) e.textContent = text;
+    return e;
+  }
+  function field(box, id, label, type, value, placeholder, onChange) {
+    box.appendChild(el("label", { "for": id }, label));
+    var i = el("input", { type: type, id: id, autocomplete: "off", spellcheck: "false", placeholder: placeholder || "" });
+    i.value = value;
+    i.addEventListener("change", function () { onChange(i.value.trim()); save(); refresh(); });
+    box.appendChild(i);
+    return i;
+  }
+  function refresh() {
+    status("stBrain", !!K.anKey, K.anKey ? "Asistentas: raktas įvestas (" + K.anModel + (searchBroken ? ", paieška internete neįjungta Anthropic konsolėje" : window.__canSearch() ? ", su paieška internete" : "") + ")" : "Asistentas: įvesk Anthropic raktą nustatymuose");
+    status("stVoice", !!(K.elKey && K.elVoice), K.elKey && K.elVoice ? "Balsas: ElevenLabs" + (K.elVoiceName ? " (" + K.elVoiceName + ")" : "")
+      : "Balsas: naršyklės balsas, kol neįvestas ElevenLabs raktas ir balsas");
+    status("stStore", true, "Atmintis: šiame įrenginyje");
+  }
+  document.addEventListener("DOMContentLoaded", function () {
+    var panel = document.querySelector(".panel-in"), head = document.querySelector(".panel-head");
+    if (!panel || !head) return;
+    var box = el("section", { "class": "keys" });
+    box.appendChild(el("h3", null, "Raktai ir balsas"));
+    box.appendChild(el("p", { "class": "hint" }, "Raktai laikomi tik šioje naršyklėje. Niekam jų nesiųsk."));
+    var f1 = field(box, "kAn", "Anthropic API raktas", "password", K.anKey, "sk-ant-…", function (v) { K.anKey = v; });
+    f1.setAttribute("type", "text"); f1.style.webkitTextSecurity = "disc";
+    field(box, "kAnModel", "Claude modelis", "text", K.anModel, "claude-haiku-5-5", function (v) { K.anModel = v || "claude-haiku-5-5"; });
+    var f2 = field(box, "kEl", "ElevenLabs API raktas", "password", K.elKey, "", function (v) { K.elKey = v; });
+    f2.setAttribute("type", "text"); f2.style.webkitTextSecurity = "disc";
+
+    box.appendChild(el("label", { "for": "kVoice" }, "ElevenLabs balsas"));
+    var sel = el("select", { id: "kVoice" });
+    function fill(list) {
+      sel.textContent = "";
+      if (!list.length) sel.appendChild(el("option", { value: "" }, "Balsų sąrašas neįkeltas"));
+      list.forEach(function (v) { var o = el("option", { value: v.voice_id }, v.name); if (v.voice_id === K.elVoice) o.selected = true; sel.appendChild(o); });
+    }
+    fill(K.elVoice ? [{ voice_id: K.elVoice, name: K.elVoiceName || K.elVoice }] : []);
+    sel.addEventListener("change", function () { K.elVoice = sel.value; K.elVoiceName = sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].textContent : ""; save(); refresh(); });
+    box.appendChild(sel);
+    var row = el("div", { "class": "rowx" });
+    var load = el("button", { type: "button", "class": "wide" }, "Įkelti mano balsus");
+    var test = el("button", { type: "button", "class": "wide" }, "Išbandyti balsą");
+    var note = el("p", { "class": "hint", "aria-live": "polite" });
+    load.addEventListener("click", function () {
+      if (!K.elKey) { note.textContent = "Pirma įvesk ElevenLabs raktą."; return; }
+      note.textContent = "Kraunu…";
+      fetch("https://api.elevenlabs.io/v1/voices", { headers: { "xi-api-key": K.elKey } }).then(function (r) {
+        return r.json().then(function (d) { if (!r.ok) throw new Error((d.detail && d.detail.message) || ("HTTP " + r.status)); return d; });
+      }).then(function (d) {
+        var list = (d.voices || []).map(function (v) { return { voice_id: v.voice_id, name: v.name }; });
+        fill(list);
+        if (!K.elVoice && list.length) { sel.selectedIndex = 0; sel.dispatchEvent(new Event("change")); }
+        note.textContent = "Rasta balsų: " + list.length + ". Jei savo nematai, ElevenLabs svetainėje pridėk jį prie „My Voices“.";
+      }).catch(function (e) { note.textContent = "Nepavyko: " + e.message; });
+    });
+    test.addEventListener("click", function () {
+      speak("Labas vakaras. Aš kalbu iš gelmių.").catch(function (e) {
+        if (e && e.code !== "replaced" && e.code !== "viewer_stopped") note.textContent = "Nepavyko: " + ((e && e.message) || (e && e.code) || "klaida");
+      });
+    });
+    row.appendChild(load); row.appendChild(test); box.appendChild(row); box.appendChild(note);
+    field(box, "kVoiceId", "Arba balso ID ranka", "text", K.elVoice, "", function (v) { K.elVoice = v; K.elVoiceName = ""; fill(v ? [{ voice_id: v, name: v }] : []); });
+    field(box, "kElModel", "ElevenLabs modelis", "text", K.elModel, "eleven_v4", function (v) { K.elModel = v || "eleven_v4"; });
+
+    var chk = el("label", { "class": "check" });
+    var cb = el("input", { type: "checkbox", id: "kSearch" });
+    cb.checked = K.search === "on";
+    cb.addEventListener("change", function () { K.search = cb.checked ? "on" : "off"; searchBroken = false; save(); });
+    chk.appendChild(cb); chk.appendChild(el("span", null, "Leisti ieškoti internete (naujienos, orai). Kiekviena paieška kainuoja papildomai"));
+    box.appendChild(chk);
+
+    box.appendChild(el("h3", null, "Balso skambesys"));
+    FX.forEach(function (f) {
+      var w = el("div", { "class": "fx" });
+      w.appendChild(el("label", { "for": "fx-" + f[0] }, f[1]));
+      var o = el("output", null, String(K.fx[f[0]]));
+      var i = el("input", { type: "range", id: "fx-" + f[0], min: f[2], max: f[3], step: f[4] });
+      i.value = K.fx[f[0]];
+      i.addEventListener("input", function () { K.fx[f[0]] = parseFloat(i.value); o.textContent = i.value; applyFx(f[0]); save(); });
+      w.appendChild(o); w.appendChild(i); box.appendChild(w);
+    });
+    head.insertAdjacentElement("afterend", box);
+    setTimeout(refresh, 600); setTimeout(refresh, 2500);
+    if (location.protocol === "file:") {
+      var warn = el("p", { "class": "hint" }, "Atidaryta kaip failas: Chrome gali klausti mikrofono leidimo kiekvieną kartą. Tai išnyks, kai puslapį padėsime į interneto adresą.");
+      box.appendChild(warn);
+    }
+  });
+})();
+</script>
+<script>
+(function () {
+  "use strict";
+  var $ = function (id) { return document.getElementById(id); };
+  var talk = $("talk"), form = $("form"), input = $("text");
+  var micBtn = $("mic"), muteBtn = $("mute"), sendBtn = $("send");
+  var stateText = $("stateText"), titleEl = $("title");
+  var panel = $("panel"), setName = $("setName"), setTone = $("setTone"), setAbout = $("setAbout");
+  var setHands = $("setHands"), handsRow = $("handsRow"), notesEl = $("notes"), notesEmpty = $("notesEmpty");
+  var syncNote = $("syncNote"), voiceRow = $("voice"), voiceSel = $("voiceSel"), rateIn = $("rate");
+  var setTheme = $("setTheme"), setAmbient = $("setAmbient");
+  var clockTime = $("clockTime"), clockDate = $("clockDate");
+  var setUser = $("setUser"), setRules = $("setRules");
+  var sideChat = $("sideChat"), sideInfo = $("sideInfo"), tChat = $("tChat"), tInfo = $("tInfo");
+  var captionEl = $("caption"), notesMini = $("notesMini");
+  var orbY = 0.47;
+  function narrow() { return window.innerWidth <= 820; }
+  var micStatus = "";
+  function setStatus(id, ok, text) {
+    var li = $(id); li.className = ok ? "ok" : "no"; li.textContent = text;
+    if (id === "stMic") micStatus = text;
+  }
+  var applyTheme = function () {};
+  var react = function () {};
+  var DEFAULT_RULES =
+    "- Pirmiausia atsakyk tiesiai, tik tada trumpai paaiškink.\n" +
+    "- Jei klausimas neaiškus, užduok vieną patikslinantį klausimą.\n" +
+    "- Jei nesi tikras, taip ir pasakyk, faktų nespėliok.\n" +
+    "- Nepataikauk: jei manai, kad klystu, pasakyk ramiai ir paaiškink kodėl.\n" +
+    "- Sprendimus palik man: pateik variantus su pliusais ir minusais.\n" +
+    "- Naudokis tuo, ką apie mane žinai, bet nekartok to be reikalo.";
+  function noop() {}
+
+  var LABELS = { idle: "Laukiu", listening: "Klausau", thinking: "Galvoju", speaking: "Kalbu" };
+  var state = "idle";
+  function setState(s) {
+    state = s;
+    document.body.dataset.state = s;
+    stateText.textContent = LABELS[s];
+    if (s !== "idle") wake();
+  }
+
+  function scrollTalk() { sideChat.scrollTop = sideChat.scrollHeight; }
+  function addMsg(cls, text) {
+    var p = document.createElement("p");
+    p.className = "msg " + cls;
+    p.textContent = text;
+    talk.appendChild(p);
+    scrollTalk();
+    if (cls.indexOf("bot") === 0 && text !== "…") captionEl.textContent = text;
+    return p;
+  }
+
+  /* ---------- settings and memory ---------- */
+  var settings = { name: "Asistentas", tone: "draugiškai ir šiltai", about: "", voice: "buttery", rate: 1, handsfree: false, theme: "auto", ambient: true, user: "", rules: DEFAULT_RULES, chat: true, info: !narrow() };
+  var mem = { notes: [], history: [] };
+  var LS = "asist.v2", touched = false;
+
+  function takeSettings(d) {
+    if (!d) return;
+    if (typeof d.name === "string" && d.name.trim()) settings.name = d.name.trim().slice(0, 30);
+    if (typeof d.tone === "string" && setTone.querySelector('option[value="' + d.tone + '"]')) settings.tone = d.tone;
+    if (typeof d.about === "string") settings.about = d.about.slice(0, 600);
+    if (typeof d.voice === "string" && voiceSel.querySelector('option[value="' + d.voice + '"]')) settings.voice = d.voice;
+    if (d.rate >= 0.7 && d.rate <= 1.5) settings.rate = d.rate;
+    settings.handsfree = !!d.handsfree;
+    if (typeof d.theme === "string" && setTheme.querySelector('option[value="' + d.theme + '"]')) settings.theme = d.theme;
+    if (typeof d.ambient === "boolean") settings.ambient = d.ambient;
+    if (typeof d.chat === "boolean") settings.chat = d.chat;
+    if (typeof d.info === "boolean") settings.info = d.info;
+    if (typeof d.user === "string") settings.user = d.user.trim().slice(0, 30);
+    if (typeof d.rules === "string") settings.rules = d.rules.slice(0, 1200);
+  }
+  function takeMem(d) {
+    if (!d) return;
+    if (Array.isArray(d.notes)) mem.notes = d.notes.filter(function (n) { return typeof n === "string"; }).slice(-40);
+    if (Array.isArray(d.history)) mem.history = d.history.filter(function (m) {
+      return m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string";
+    }).slice(-24);
+  }
+  try {
+    var cached = JSON.parse(localStorage.getItem(LS) || "null");
+    if (cached) { takeSettings(cached.settings); takeMem(cached.mem); }
+  } catch (e) {}
+
+  var store = null, chain = Promise.resolve(), warned = false;
+  function persist(which) {
+    try { localStorage.setItem(LS, JSON.stringify({ settings: settings, mem: mem })); } catch (e) {}
+    if (!store) return;
+    var ref = store[which];
+    var body = JSON.parse(JSON.stringify(which === "settings" ? settings : mem));
+    chain = chain.then(function () { return ref.set(body); }).catch(function () {
+      if (warned) return;
+      warned = true;
+      syncNote.textContent = "Nepavyko išsaugoti paskyroje. Duomenys laikomi tik šioje naršyklėje.";
+    });
+  }
+
+  function renderNotes() {
+    notesEl.textContent = "";
+    notesMini.textContent = "";
+    if (!mem.notes.length) { var none = document.createElement("li"); none.textContent = "Kol kas nieko. Pasakyk „įsimink, kad…“."; none.style.color = "var(--muted)"; notesMini.appendChild(none); }
+    mem.notes.slice(-8).forEach(function (note) { var m = document.createElement("li"); m.textContent = note; notesMini.appendChild(m); });
+    notesEmpty.hidden = mem.notes.length > 0;
+    mem.notes.forEach(function (note, i) {
+      var li = document.createElement("li");
+      var span = document.createElement("span");
+      span.textContent = note;
+      var del = document.createElement("button");
+      del.type = "button"; del.className = "small"; del.textContent = "×";
+      del.setAttribute("aria-label", "Pamiršti: " + note);
+      del.addEventListener("click", function () {
+        mem.notes.splice(i, 1); touched = true;
+        renderNotes(); persist("memory");
+      });
+      li.appendChild(span); li.appendChild(del);
+      notesEl.appendChild(li);
+    });
+  }
+
+  function greeting() {
+    var n = new Date(), h = n.getHours(), day = "";
+    var hello = h >= 5 && h < 11 ? "Labas rytas" : h >= 11 && h < 18 ? "Laba diena" : "Labas vakaras";
+    try { day = n.toLocaleDateString("lt-LT", { weekday: "long", month: "long", day: "numeric" }); } catch (e) {}
+    var text = hello + (settings.user ? ", " + settings.user : "") + ".";
+    if (day) text += " Šiandien " + day + ".";
+    if (!mem.history.length) text += " Aš " + settings.name + ". Parašyk man arba paspausk mikrofoną ir kalbėk.";
+    return text;
+  }
+
+  function renderTalk() {
+    talk.textContent = "";
+    mem.history.slice(-6).forEach(function (m) { addMsg(m.role === "user" ? "you" : "bot", m.content); });
+    addMsg("bot greet", greeting());
+  }
+
+  /* the greeting is spoken on the first tap, because sound needs a touch first */
+  var greeted = false;
+  document.addEventListener("pointerdown", function (e) {
+    if (greeted) return;
+    greeted = true;
+    if (e.target.closest && e.target.closest("button, input, select, textarea, #panel")) return;
+    var g = talk.querySelector(".greet");
+    if (g && state === "idle" && !busy) speak(g.textContent, false);
+  }, true);
+
+  function applyLayout() {
+    sideChat.hidden = !settings.chat;
+    sideInfo.hidden = !settings.info;
+    tChat.setAttribute("aria-pressed", String(settings.chat));
+    tInfo.setAttribute("aria-pressed", String(settings.info));
+    document.body.classList.toggle("chat-closed", !settings.chat);
+    orbY = narrow() ? (settings.chat ? 0.36 : 0.44) : 0.47;
+    if (settings.chat) scrollTalk();
+  }
+  tChat.addEventListener("click", function () { settings.chat = !settings.chat; applyLayout(); persist("settings"); });
+  tInfo.addEventListener("click", function () { settings.info = !settings.info; applyLayout(); persist("settings"); });
+  window.addEventListener("resize", applyLayout);
+
+  function applySettings() {
+    applyLayout();
+    titleEl.textContent = settings.name;
+    setName.value = settings.name;
+    setTone.value = settings.tone;
+    setAbout.value = settings.about;
+    setHands.checked = settings.handsfree;
+    voiceSel.value = settings.voice;
+    rateIn.value = String(settings.rate);
+    setTheme.value = settings.theme;
+    setAmbient.checked = settings.ambient;
+    setUser.value = settings.user;
+    setRules.value = settings.rules;
+    applyTheme(settings.theme);
+  }
+
+  applySettings(); renderNotes(); renderTalk();
+
+  $("gear").addEventListener("click", function () { panel.hidden = false; $("closePanel").focus(); });
+  $("closePanel").addEventListener("click", function () { panel.hidden = true; $("gear").focus(); });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape" && !panel.hidden) panel.hidden = true; });
+
+  setName.addEventListener("change", function () {
+    settings.name = setName.value.trim().slice(0, 30) || "Asistentas";
+    applySettings(); if (talk.querySelector(".greet")) renderTalk(); persist("settings");
+  });
+  setUser.addEventListener("change", function () {
+    settings.user = setUser.value.trim().slice(0, 30);
+    if (talk.querySelector(".greet")) renderTalk(); persist("settings");
+  });
+  setRules.addEventListener("change", function () { settings.rules = setRules.value.trim(); persist("settings"); });
+  setTone.addEventListener("change", function () { settings.tone = setTone.value; persist("settings"); });
+  setAbout.addEventListener("change", function () { settings.about = setAbout.value.trim(); persist("settings"); });
+  setHands.addEventListener("change", function () { settings.handsfree = setHands.checked; persist("settings"); });
+  voiceSel.addEventListener("change", function () {
+    settings.voice = voiceSel.value; persist("settings");
+    speak("Taip aš skambu šiuo balsu.", true);
+  });
+  rateIn.addEventListener("change", function () {
+    settings.rate = parseFloat(rateIn.value) || 1; persist("settings");
+    speak("Dabar kalbu tokiu tempu.", true);
+  });
+  setTheme.addEventListener("change", function () {
+    settings.theme = setTheme.value; applyTheme(settings.theme); persist("settings");
+  });
+  setAmbient.addEventListener("change", function () {
+    settings.ambient = setAmbient.checked; persist("settings"); wake();
+  });
+
+  /* home screen: a clock after a minute of quiet */
+  var idleT = null;
+  function tick() {
+    var n = new Date();
+    var hm = ("0" + n.getHours()).slice(-2) + ":" + ("0" + n.getMinutes()).slice(-2), day;
+    try { day = n.toLocaleDateString("lt-LT", { weekday: "long", month: "long", day: "numeric" }); }
+    catch (e) { day = n.toDateString(); }
+    clockTime.textContent = hm; clockDate.textContent = day;
+    $("miniTime").textContent = hm; $("miniDate").textContent = day;
+  }
+  function wake() {
+    document.body.classList.remove("ambient");
+    clearTimeout(idleT);
+    if (!settings.ambient) return;
+    idleT = setTimeout(function () {
+      if (state === "idle" && panel.hidden && !busy && !listening && !input.value) {
+        tick();
+        document.body.classList.add("ambient");
+      } else wake();
+    }, 60000);
+  }
+  document.addEventListener("pointerdown", wake, true);
+  document.addEventListener("keydown", wake, true);
+  setInterval(tick, 5000);
+  tick();
+
+  $("clearChat").addEventListener("click", function () {
+    mem.history = []; touched = true;
+    renderTalk(); persist("memory");
+  });
+
+  /* ---------- capabilities ---------- */
+  var sample = null, tts = null, dict = null;
+  var muted = false, busy = false, listening = false;
+  var webSpeech = ("speechSynthesis" in window) ? window.speechSynthesis : null;
+
+  function ready(name) {
+    if (!window.claude || !window.claude.use) return Promise.resolve(null);
+    return window.claude.use(name).catch(function () { return null; });
+  }
+
+  Promise.all([ready("db"), ready("user")]).then(function (r) {
+    var db = r[0], user = r[1];
+    if (!db || !user) return null;
+    return Promise.resolve(user.id()).then(function (uid) {
+      if (!uid) return null;
+      store = {
+        settings: db.doc("data/users/" + uid + "/settings"),
+        memory: db.doc("data/users/" + uid + "/memory")
+      };
+      return Promise.all([store.settings.get(), store.memory.get()]);
+    });
+  }).then(function (snaps) {
+    setStatus("stStore", !!snaps, snaps ? "Atmintis: saugoma paskyroje" : "Atmintis: tik šioje naršyklėje");
+    if (!snaps) {
+      syncNote.textContent = "Šiame lange paskyros saugykla nepasiekiama. Duomenys laikomi tik šioje naršyklėje.";
+      return;
+    }
+    if (snaps[0].exists) takeSettings(snaps[0].data());
+    if (snaps[1].exists && !touched && !busy) takeMem(snaps[1].data());
+    applySettings(); renderNotes();
+    if (!busy && !touched) renderTalk();
+    syncNote.textContent = "Nustatymai, atmintis ir pokalbis saugomi tavo paskyroje.";
+  }).catch(function () {
+    store = null;
+    setStatus("stStore", false, "Atmintis: tik šioje naršyklėje");
+    syncNote.textContent = "Nepavyko pasiekti paskyros saugyklos. Duomenys laikomi tik šioje naršyklėje.";
+  });
+
+  ready("sample").then(function (s) {
+    sample = s;
+    setStatus("stBrain", !!s, s ? "Asistentas: prisijungęs" : "Asistentas: nepasiekiamas");
+    if (!s) addMsg("note", "Šiame lange asistentas nepasiekiamas. Atidaryk puslapį per claude.ai.");
+  });
+
+  ready("tts").then(function (t) {
+    tts = t;
+    setStatus("stVoice", !!(t || webSpeech), t ? "Balsas: veikia" : webSpeech ? "Balsas: naršyklės balsas" : "Balsas: šiame lange nėra");
+    if (t) {
+      muteBtn.hidden = false;
+      voiceRow.hidden = false;
+      t.onState(function (e) {
+        if (e.state === "speaking") setState("speaking");
+        else if (e.state === "idle" && state === "speaking") setState("idle");
+      });
+    } else if (webSpeech) {
+      muteBtn.hidden = false;
+    } else {
+      addMsg("note", "Šiame lange balso nėra, todėl atsakymus rodysiu tekstu. Kad kalbėčiau garsiai, atidaryk šį puslapį Chrome naršyklėje.");
+    }
+  });
+
+  /* dictation: a pause in speech sends the question */
+  var silenceT = null, autoBlocked = false;
+  function armSilence(ms) {
+    clearTimeout(silenceT);
+    silenceT = setTimeout(function () { if (listening && dict) dict.stop().catch(noop); }, ms);
+  }
+
+  /* fallback: the browser's own speech recognition, where the frame lets it run */
+  function webDictation() {
+    var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) return null;
+    var rec = null, cbP = noop, cbF = noop, cbS = noop;
+    return {
+      onPartial: function (f) { cbP = f; }, onFinal: function (f) { cbF = f; }, onState: function (f) { cbS = f; },
+      start: function () {
+        return new Promise(function (res, rej) {
+          try {
+            var started = false;
+            rec = new SR(); rec.lang = "lt-LT"; rec.interimResults = true; rec.continuous = true;
+            rec.onstart = function () { started = true; cbS({ state: "listening" }); res(); };
+            rec.onerror = function (e) {
+              if (!started) rej({ code: e.error === "not-allowed" || e.error === "service-not-allowed" ? "not_granted" : e.error });
+            };
+            rec.onend = function () { if (started) cbS({ state: "idle", reason: "stopped" }); };
+            rec.onresult = function (e) {
+              for (var i = e.resultIndex; i < e.results.length; i++) {
+                var r = e.results[i];
+                if (r.isFinal) cbF({ text: r[0].transcript }); else cbP({ text: r[0].transcript });
+              }
+            };
+            rec.start();
+          } catch (err) { rej({ code: "error" }); }
+        });
+      },
+      stop: function () { try { if (rec) rec.stop(); } catch (e) {} return Promise.resolve(); }
+    };
+  }
+
+  ready("dictation").then(function (d) {
+    var own = !!d;
+    if (!d) d = webDictation();
+    dict = d;
+    setStatus("stMic", !!d, d ? "Mikrofonas: paruoštas, spausk raudoną mygtuką" : "Mikrofonas: šiame lange neveikia, rašyk tekstu");
+    if (!d) return;
+    micBtn.hidden = false;
+    var settled = "";
+    d.onPartial(function (e) {
+      input.value = (settled + " " + e.text).trim();
+      if (input.value) armSilence(2000);
+    });
+    d.onFinal(function (e) {
+      settled = (settled + " " + e.text).trim();
+      input.value = settled;
+      armSilence(1500);
+    });
+    d.onState(function (e) {
+      if (e.state === "listening") {
+        listening = true; settled = "";
+        micBtn.setAttribute("aria-pressed", "true");
+        setStatus("stMic", true, "Mikrofonas: klausau");
+        setState("listening");
+        armSilence(12000);
+      } else if (e.state === "idle") {
+        listening = false;
+        clearTimeout(silenceT);
+        micBtn.setAttribute("aria-pressed", "false");
+        setStatus("stMic", true, "Mikrofonas: išjungtas, spausk raudoną mygtuką");
+        if (state === "listening") setState("idle");
+        if (input.value.trim()) ask(input.value.trim());
+        else setStatus("stMic", false, "Mikrofonas: nieko neišgirdau" + (e.reason ? " (" + e.reason + ")" : "") +
+          ". Patikrink, ar naršyklėje pasirinktas tinkamas mikrofonas ir ar jis neužtildytas");
+      } else {
+        setStatus("stMic", true, "Mikrofonas: " + e.state + (e.reason ? " (" + e.reason + ")" : ""));
+      }
+    });
+  });
+
+  function stopSpeaking() {
+    try { if (tts) tts.stop(); } catch (e) {}
+    try { if (webSpeech) webSpeech.cancel(); } catch (e) {}
+  }
+
+  function startListening(auto) {
+    if (!dict || listening) return;
+    if (!auto) stopSpeaking();
+    input.value = "";
+    setStatus("stMic", true, "Mikrofonas: jungiu… jei naršyklė klausia leidimo, patvirtink");
+    dict.start().catch(function (err) {
+      if (err && err.code === "not_granted") {
+        micBtn.hidden = true; dict = null;
+        setStatus("stMic", false, "Mikrofonas: šiame lange neveikia, rašyk tekstu");
+        addMsg("note", "Mikrofonas neleistas. Klausimą gali parašyti.");
+      } else if (!auto) {
+        setStatus("stMic", false, "Mikrofonas: nepavyko įjungti (" + ((err && err.code) || "klaida") + ")");
+      } else if (auto && !autoBlocked) {
+        autoBlocked = true;
+        addMsg("note", "Naršyklė neleido man pačiam įjungti mikrofono. Paspausk mikrofoną, kai norėsi kalbėti.");
+      }
+    });
+  }
+
+  micBtn.addEventListener("click", function () {
+    if (!dict) return;
+    if (listening) { dict.stop().catch(noop); return; }
+    startListening(false);
+  });
+
+  muteBtn.addEventListener("click", function () {
+    muted = !muted;
+    muteBtn.setAttribute("aria-pressed", String(muted));
+    muteBtn.setAttribute("aria-label", muted ? "Įjungti balsą" : "Išjungti balsą");
+    if (muted) { stopSpeaking(); if (state === "speaking") setState("idle"); }
+  });
+
+  function afterAnswer(preview) {
+    if (state === "speaking") setState("idle");
+    if (preview || !settings.handsfree || busy || !panel.hidden) return;
+    if (dict && !autoBlocked) startListening(true);
+    else { try { input.focus(); } catch (e) {} }
+  }
+
+  function speak(text, preview) {
+    if (!text) return;
+    if (muted) { setState("idle"); afterAnswer(preview); return; }
+    if (tts) {
+      tts.speak(text.slice(0, 2000), { voice: settings.voice, rate: settings.rate }).then(function () {
+        afterAnswer(preview);
+      }, function (err) {
+        if (err && err.code === "not_granted") { muteBtn.hidden = true; voiceRow.hidden = true; tts = null; }
+        if (state === "speaking") setState("idle");
+      });
+      return;
+    }
+    if (webSpeech) {
+      try {
+        var u = new SpeechSynthesisUtterance(text);
+        if (/[ąčęėįšųūž]/i.test(text)) u.lang = "lt-LT";
+        u.rate = settings.rate;
+        u.onstart = function () { setState("speaking"); };
+        u.onend = function () { afterAnswer(preview); };
+        u.onerror = function () { if (state === "speaking") setState("idle"); };
+        webSpeech.cancel();
+        webSpeech.speak(u);
+        setState("idle");
+        return;
+      } catch (e) {}
+    }
+    setState("idle");
+    afterAnswer(preview);
+  }
+
+  function instructions() {
+    var now = new Date(), when = "";
+    try {
+      when = now.toLocaleDateString("lt-LT", { weekday: "long", year: "numeric", month: "long", day: "numeric" }) +
+        ", " + now.toLocaleTimeString("lt-LT", { hour: "2-digit", minute: "2-digit" });
+    } catch (e) { when = now.toString(); }
+    var s = "Tu esi balso asistentas vardu " + settings.name + ". Tavo atsakymas bus perskaitytas garsiai. " +
+      "Kalbėk " + settings.tone + ". Atsakyk trumpai, 1–3 sakiniais, be sąrašų, be markdown ir be jaustukų. " +
+      "Atsakyk ta kalba, kuria kreipiasi žmogus (dažniausiai lietuviškai). " +
+      "Į žmogų kreipkis „tu“, ne „jūs“. Jei ko nors nežinai, pasakyk tai tiesiai. " +
+      (window.__canSearch && window.__canSearch()
+        ? "Gali ieškoti internete: kai klausia apie naujienas, orus, kainas ar kitus dabartinius dalykus, paieškok ir atsakyk trumpai savo žodžiais, be nuorodų ir šaltinių sąrašo. Namų įrenginių nevaldai. "
+        : "Neturi prieigos prie naujienų, orų ar namų įrenginių. ") +
+      "Dabar yra " + when + ".";
+    s += " Kiekvieną atsakymą pradėk viena žyma laužtiniuose skliaustuose, rodančia atsakymo nuotaiką: " +
+      "[joy] džiugi žinia ar pagyrimas, [wow] kas nors stebinančio, [serious] rimta ar įspėjanti tema, " +
+      "[care] kai žmogui sunku ar liūdna, [calm] visa kita. Žymą rašyk tik vieną kartą, pačioje pradžioje.";
+    s += "\n\nApie šį langą: žmogus tau rašo arba kalba per mikrofono mygtuką ekrano apačioje (raudonas reiškia išjungtą, " +
+      "žalias reiškia, kad klausomasi). Jo kalba paverčiama tekstu ir tu gauni tekstą, o tavo atsakymas perskaitomas balsu. " +
+      "Jei klausia apie mikrofoną, paaiškink tai ir nukreipk į būsenos eilutę dešinėje. " + (micStatus ? "Dabartinė būsena: " + micStatus + "." : "");
+    if (settings.user) s += "\n\nŽmogų vadink vardu: " + settings.user + ".";
+    if (settings.about) s += "\n\nApie žmogų, su kuriuo kalbi: " + settings.about;
+    if (settings.rules) s += "\n\nŽmogaus nustatytos taisyklės, kaip su juo kalbėti:\n" + settings.rules;
+    s += "\n\nVisada galioja: būk šiltas ir asmeniškas, bet sąžiningas. Jei žmogus klysta arba kas nors gali jam pakenkti, " +
+      "pasakyk tai švelniai, net jei taisyklės prašo tik pritarti. Nevaidink žmogaus ir neteik, kad esi vienintelis jo draugas; " +
+      "palaikyk jo ryšius su artimaisiais.";
+    if (mem.notes.length) s += "\n\nKą esi įsiminęs iš ankstesnių pokalbių:\n- " + mem.notes.join("\n- ");
+    s += "\n\nJei žmogus paprašo ką nors įsiminti arba pasako ilgalaikį faktą apie save (vardą, pomėgį, planą), " +
+      "arba pasako, kaip jam patinka gauti atsakymus, iškviesk įrankį remember su vienu trumpu faktu ir tada atsakyk įprastai. " +
+      "Nekartok jau įsimintų faktų.";
+    return s;
+  }
+
+  function splitMood(text) {
+    var m = /^\s*\[(joy|calm|serious|wow|care)\]\s*/i.exec(text || "");
+    if (m) return { mood: m[1].toLowerCase(), text: text.slice(m[0].length) };
+    return { mood: null, text: /^\s*\[[a-z]*\]?\s*$/i.test(text || "") ? "" : (text || "") };
+  }
+
+  var rememberTool = {
+    name: "remember",
+    description: "Įsimena vieną trumpą ilgalaikį faktą apie žmogų, kad jis būtų žinomas kituose pokalbiuose.",
+    inputSchema: { type: "object", properties: { fact: { type: "string", description: "Faktas vienu sakiniu" } }, required: ["fact"] },
+    execute: function (inp) {
+      var fact = String((inp && inp.fact) || "").trim().slice(0, 300);
+      if (!fact) throw new Error("Tuščias faktas");
+      if (mem.notes.indexOf(fact) === -1) {
+        if (mem.notes.length >= 40) mem.notes.shift();
+        mem.notes.push(fact);
+        renderNotes();
+      }
+      return { saved: true };
+    }
+  };
+
+  function ask(question) {
+    if (busy || !question) return;
+    input.value = "";
+    var greet = talk.querySelector(".greet");
+    if (greet) greet.remove();
+    addMsg("you", question);
+    if (!sample) {
+      addMsg("err", "Asistentas dar neprisijungė. Pabandyk po kelių sekundžių.");
+      return;
+    }
+    busy = true; touched = true; sendBtn.disabled = true;
+    stopSpeaking();
+    setState("thinking");
+
+    mem.history.push({ role: "user", content: question });
+    var recent = mem.history.slice(-12);
+    while (recent.length && recent[0].role !== "user") recent.shift();
+    var lead = instructions();
+    var messages = recent.map(function (m, i) {
+      return i === 0 ? { role: m.role, content: lead + "\n\n" + m.content } : { role: m.role, content: m.content };
+    });
+
+    var bubble = addMsg("bot", "…");
+    var answer = "";
+    sample(messages, {
+      modelTier: "quick",
+      cache: false,
+      tools: [rememberTool],
+      onText: function (e) {
+        var shown = splitMood(e.text).text;
+        if (shown) { bubble.textContent = shown; captionEl.textContent = shown; scrollTalk(); }
+      }
+    }).then(function (res) {
+      var parts = splitMood((res && res.text) || "");
+      answer = parts.text.trim();
+      if (answer && parts.mood) react(parts.mood);
+      bubble.textContent = answer || "Negavau atsakymo. Paklausk dar kartą.";
+      captionEl.textContent = bubble.textContent;
+      if (answer) mem.history.push({ role: "assistant", content: answer });
+      else mem.history.pop();
+      if (mem.history.length > 24) mem.history = mem.history.slice(-24);
+      persist("memory");
+    }).catch(function (err) {
+      mem.history.pop();
+      bubble.className = "msg err";
+      var code = err && err.code;
+      bubble.textContent =
+        code === "rate_limited" ? "Per daug klausimų iš eilės. Palauk minutę ir bandyk vėl." :
+        code === "not_granted" ? "Asistentui neduotas leidimas atsakyti šiame puslapyje." :
+        code === "no_key" ? "Nustatymuose įvesk Anthropic API raktą." :
+        code === "bad_key" ? "Anthropic raktas netinka. Patikrink jį nustatymuose." :
+        code === "api_error" ? "Klaida iš Anthropic: " + ((err && err.message) || "nežinoma") :
+        "Nepavyko gauti atsakymo. Bandyk dar kartą.";
+    }).then(function () {
+      busy = false; sendBtn.disabled = false;
+      if (!narrow() && !listening) { try { input.focus(); } catch (e) {} }
+      if (answer) speak(answer, false); else setState("idle");
+    });
+  }
+
+  /* text dictated with the keyboard's or the system's microphone is sent after a pause */
+  var typeT = null;
+  input.addEventListener("input", function () {
+    clearTimeout(typeT);
+    if (!settings.handsfree || listening) return;
+    typeT = setTimeout(function () {
+      if (settings.handsfree && !listening && !busy && input.value.trim()) ask(input.value.trim());
+    }, 2500);
+  });
+
+  form.addEventListener("submit", function (e) {
+    clearTimeout(typeT);
+    e.preventDefault();
+    ask(input.value.trim());
+  });
+  wake();
+
+  [
+    "Ką šiandien verta nuveikti?",
+    "Papasakok ką nors įdomaus",
+    "Padėk suplanuoti rytojų",
+    "Ką apie mane prisimeni?"
+  ].forEach(function (q) {
+    var b = document.createElement("button");
+    b.type = "button"; b.textContent = q;
+    b.addEventListener("click", function () { ask(q); });
+    $("quick").appendChild(b);
+  });
+  if (!narrow()) { try { input.focus(); } catch (e) {} }
+
+  var fullBtn = $("full");
+  if (!document.documentElement.requestFullscreen) fullBtn.hidden = true;
+  fullBtn.addEventListener("click", function () {
+    try {
+      var p = document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
+      if (p && p.catch) p.catch(function () { fullBtn.hidden = true; });
+    } catch (e) { fullBtn.hidden = true; }
+  });
+
+  /* ---------- avatar: a small living cosmos ---------- */
+  var canvas = $("orb"), ctx = canvas.getContext("2d");
+  var W = 0, H = 0, dpr = 1;
+  var calm = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  function resize() {
+    var r = canvas.getBoundingClientRect();
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    W = Math.max(1, Math.round(r.width)); H = Math.max(1, Math.round(r.height));
+    canvas.width = W * dpr; canvas.height = H * dpr;
+  }
+  if (window.ResizeObserver) new ResizeObserver(resize).observe(canvas);
+  window.addEventListener("resize", resize);
+  resize();
+
+  var ICE = [88, 184, 255], EMBER = [255, 138, 56], VIOLET = [168, 84, 255], TEAL = [28, 236, 186];
+  var PALETTES = {
+    ledas:  { a: [88, 184, 255],  b: [255, 138, 56],  c: [168, 84, 255],  d: [28, 236, 186],  deep: "#121a52" },
+    ausra:  { a: [255, 150, 190], b: [255, 200, 90],  c: [255, 110, 140], d: [255, 190, 150], deep: "#3a1638" },
+    miskas: { a: [90, 230, 150],  b: [240, 220, 90],  c: [40, 200, 200],  d: [170, 240, 110], deep: "#0c2f2a" },
+    ugnis:  { a: [255, 120, 70],  b: [255, 210, 90],  c: [255, 70, 90],   d: [255, 160, 60],  deep: "#3a1410" },
+    ukas:   { a: [190, 130, 255], b: [255, 150, 210], c: [120, 90, 255],  d: [90, 200, 255],  deep: "#1c1150" }
+  };
+  function hex(c) { return "#" + c.map(function (v) { return ("0" + v.toString(16)).slice(-2); }).join(""); }
+  function copyInto(dst, src) { dst[0] = src[0]; dst[1] = src[1]; dst[2] = src[2]; }
+  applyTheme = function (name) {
+    if (name === "auto" || !PALETTES[name]) {
+      var h = new Date().getHours();
+      name = h >= 6 && h < 11 ? "ausra" : h >= 11 && h < 17 ? "ledas" : h >= 17 && h < 22 ? "ugnis" : "ukas";
+    }
+    var p = PALETTES[name], root = document.documentElement.style;
+    copyInto(ICE, p.a); copyInto(EMBER, p.b); copyInto(VIOLET, p.c); copyInto(TEAL, p.d);
+    root.setProperty("--ice", hex(p.a)); root.setProperty("--ember", hex(p.b));
+    root.setProperty("--violet", hex(p.c)); root.setProperty("--teal", hex(p.d));
+    root.setProperty("--deep", p.deep);
+  };
+  applyTheme(settings.theme);
+  setInterval(function () { if (settings.theme === "auto") applyTheme("auto"); }, 600000);
+
+  function rgba(c, a) { return "rgba(" + c[0] + "," + c[1] + "," + c[2] + "," + a.toFixed(3) + ")"; }
+  function blend(a, b, m) {
+    return [Math.round(a[0] + (b[0] - a[0]) * m), Math.round(a[1] + (b[1] - a[1]) * m), Math.round(a[2] + (b[2] - a[2]) * m)];
+  }
+
+  /* far stars */
+  var stars = [];
+  for (var i = 0; i < 170; i++) stars.push({ x: Math.random(), y: Math.random(), d: 0.2 + Math.random() * 0.8, ph: Math.random() * 6.28 });
+
+  /* nebula clouds drifting around the core */
+  var clouds = [
+    { c: VIOLET, a: 0.0, r: 1.5, sp: 0.07, size: 2.2 },
+    { c: TEAL, a: 2.1, r: 1.7, sp: -0.05, size: 2.0 },
+    { c: ICE, a: 4.0, r: 1.2, sp: 0.09, size: 1.8 },
+    { c: EMBER, a: 5.2, r: 1.9, sp: -0.04, size: 2.4 }
+  ];
+
+  /* sphere of points */
+  var N = 1500, pts = [];
+  var golden = Math.PI * (3 - Math.sqrt(5));
+  for (var i = 0; i < N; i++) {
+    var y = 1 - (i / (N - 1)) * 2;
+    var rad = Math.sqrt(1 - y * y);
+    var th = golden * i;
+    pts.push({ x: Math.cos(th) * rad, y: y, z: Math.sin(th) * rad, s: Math.random() });
+  }
+
+  /* orbiting dust disk */
+  var dust = [];
+  for (var i = 0; i < 620; i++) {
+    var rr = 1.3 + Math.pow(Math.random(), 1.6) * 1.1;
+    dust.push({ r: rr, a: Math.random() * 6.283, v: 0.5 / Math.pow(rr, 1.5), h: (Math.random() - 0.5) * 0.08, s: Math.random() });
+  }
+
+  var meteors = [], nextMeteor = 2500;
+
+  /* corona rays that follow the voice */
+  var RAYS = 64, rays = [];
+  for (var i = 0; i < RAYS; i++) rays.push({ v: 0, to: 0 });
+  var sparks = [];
+
+  /* long threads of light crossing the sky */
+  var threads = [];
+  for (var i = 0; i < 6; i++) threads.push({
+    y: 0.12 + i * 0.15 + (Math.random() - 0.5) * 0.06, amp: 0.05 + Math.random() * 0.09,
+    k: 1.2 + Math.random() * 1.8, sp: 0.12 + Math.random() * 0.2, ph: Math.random() * 6.28,
+    c: [ICE, TEAL, VIOLET, EMBER, ICE, TEAL][i]
+  });
+
+  /* glints inside the core */
+  var glints = [];
+  for (var i = 0; i < 90; i++) glints.push({ a: Math.random() * 6.283, r: Math.pow(Math.random(), 1.8), ph: Math.random() * 6.28, sp: 2 + Math.random() * 5 });
+  var level = 0, target = 0, spin = 0, lastBeat = 0, last = 0, pull = 0, warmth = 0, voiceOn = 0;
+
+  /* reactions to what the answer says */
+  var mood = "calm", moodUntil = 0;
+  react = function (m) {
+    mood = m; moodUntil = performance.now() + 15000;
+    if (calm) return;
+    if (m === "joy") {
+      for (var i = 0; i < 46; i++) sparks.push({ a: Math.random() * 6.283, r: 1.05, v: 0.6 + Math.random() * 1.3, life: 1 });
+    } else if (m === "wow") {
+      for (var i = 0; i < RAYS; i++) rays[i].v = 0.55 + Math.random() * 0.45;
+      for (var k = 0; k < 5; k++) {
+        var left = k % 2 === 0;
+        meteors.push({ x: left ? -20 : W + 20, y: Math.random() * H * 0.7, vx: (left ? 1 : -1) * (280 + Math.random() * 240), vy: 60 + Math.random() * 110, life: 1 + k * 0.15 });
+      }
+    }
+  };
+
+  function drawDust(front, cx, cy, R, t, tint) {
+    var tiltC = Math.cos(-0.32), tiltS = Math.sin(-0.32);
+    for (var i = 0; i < dust.length; i++) {
+      var d = dust[i];
+      var sinA = Math.sin(d.a);
+      if ((sinA > 0) !== front) continue;
+      var rr = d.r * (1 - pull * 0.18);
+      var x = Math.cos(d.a) * rr;
+      var yy = sinA * rr * 0.26 + (d.h + level * 0.12 * Math.sin(d.a * 3 + t * 4 + d.s * 6)) ;
+      var px = cx + (x * tiltC - yy * tiltS) * R;
+      var py = cy + (x * tiltS + yy * tiltC) * R;
+      var near = (sinA + 1) / 2;
+      var a = (0.18 + near * 0.55) * (0.6 + 0.4 * Math.sin(t * 2 + d.s * 40));
+      var col = blend(d.s > 0.7 ? VIOLET : d.s > 0.4 ? TEAL : ICE, tint, warmth * 0.7);
+      var sz = (0.7 + near * 1.3) * (d.s > 0.94 ? 1.9 : 1);
+      ctx.fillStyle = rgba(col, Math.max(0, a));
+      ctx.fillRect(px - sz / 2, py - sz / 2, sz, sz);
+    }
+  }
+
+  function frame(now) {
+    var dt = Math.min(0.05, (now - last) / 1000 || 0.016); last = now;
+    var t = now / 1000;
+
+    if (state === "speaking") {
+      var real = window.__voiceMeter ? window.__voiceMeter() : null;
+      if (real) {
+        target = real.level;
+        for (var i = 0; i < RAYS; i++) rays[i].to = real.bins[i % real.bins.length] * 1.15;
+        if (real.level > 0.62 && sparks.length < 60 && Math.random() < 0.35) {
+          sparks.push({ a: Math.random() * 6.283, r: 1.05, v: 0.5 + Math.random() * 0.9, life: 1 });
+        }
+      } else if (now - lastBeat > 95) {
+        lastBeat = now; target = 0.25 + Math.random() * 0.75;
+        var lobe = Math.random() * 6.283;
+        for (var i = 0; i < RAYS; i++) {
+          var near = 0.5 + 0.5 * Math.cos(i / RAYS * 6.283 * 3 + lobe);
+          rays[i].to = target * (0.25 + 0.75 * near) * (0.5 + Math.random() * 0.5);
+        }
+        if (target > 0.6 && sparks.length < 70) {
+          for (var k = 0; k < 3; k++) {
+            var sa = Math.random() * 6.283, sv = 0.5 + Math.random() * 0.9;
+            sparks.push({ a: sa, r: 1.05, v: sv, life: 1 });
+          }
+        }
+      }
+    } else if (state === "listening") {
+      target = 0.35 + 0.15 * Math.sin(t * 5);
+    } else if (state === "thinking") {
+      target = 0.2 + 0.06 * Math.sin(t * 9);
+    } else {
+      target = 0.06 + 0.04 * Math.sin(t * 1.2);
+    }
+    if (calm) target = 0.08;
+    level += (target - level) * Math.min(1, dt * 10);
+    voiceOn += (((state === "speaking" || state === "listening") ? 1 : 0) - voiceOn) * Math.min(1, dt * 5);
+    for (var i = 0; i < RAYS; i++) {
+      var ry = rays[i];
+      if (state === "listening") ry.to = 0.12 + 0.1 * Math.sin(t * 6 + i * 0.6);
+      else if (state !== "speaking") ry.to = 0;
+      ry.v += (ry.to - ry.v) * Math.min(1, dt * 14);
+    }
+    pull += ((state === "listening" ? 1 : 0) - pull) * Math.min(1, dt * 4);
+    warmth += (((state === "speaking" || state === "thinking") ? 1 : 0) - warmth) * Math.min(1, dt * 3);
+
+    var feel = now < moodUntil ? mood : "calm";
+    var glow = feel === "serious" ? 0.55 : feel === "joy" || feel === "wow" ? 1.35 : 1;
+    if (feel === "care" && !calm) level += 0.05 * Math.sin(t * 1.6) * dt * 10;
+    var speed = calm ? 0.05 : (state === "thinking" ? 1.6 : state === "speaking" ? 0.45 : 0.18);
+    if (!calm) speed *= feel === "serious" || feel === "care" ? 0.45 : feel === "joy" ? 1.8 : 1;
+    spin += dt * speed;
+    var orbit = calm ? 0.1 : (state === "thinking" ? 3.2 : 1 + level * 1.5);
+    for (var i = 0; i < dust.length; i++) dust[i].a = (dust[i].a + dust[i].v * orbit * dt) % 6.283;
+
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+
+    var cx = W / 2, cy = H * orbY;
+    var R = Math.min(W, H) * (W <= 820 ? 0.2 : 0.27);
+    var tint = EMBER;
+    var coreCol = blend(ICE, EMBER, warmth);
+
+    /* stars */
+    for (var i = 0; i < stars.length; i++) {
+      var s = stars[i];
+      var sx = ((s.x + t * 0.004 * s.d) % 1) * W, sy = s.y * H;
+      var tw = calm ? 0.6 : 0.45 + 0.55 * Math.sin(t * (0.8 + s.d * 2) + s.ph);
+      ctx.fillStyle = rgba(s.d > 0.85 ? EMBER : ICE, 0.12 + 0.5 * s.d * tw);
+      var ss = 0.6 + s.d * 1.1;
+      ctx.fillRect(sx, sy, ss, ss);
+    }
+
+    ctx.globalCompositeOperation = "lighter";
+
+    /* nebula */
+    for (var i = 0; i < clouds.length; i++) {
+      var c = clouds[i];
+      var ang = c.a + t * c.sp * (calm ? 0.3 : 1 + warmth);
+      var nx = cx + Math.cos(ang) * c.r * R, ny = cy + Math.sin(ang) * c.r * R * 0.7;
+      var nr = c.size * R * (1 + level * 0.3);
+      var ng = ctx.createRadialGradient(nx, ny, 0, nx, ny, nr);
+      ng.addColorStop(0, rgba(c.c, (0.17 + level * 0.14) * glow));
+      ng.addColorStop(1, rgba(c.c, 0));
+      ctx.fillStyle = ng;
+      ctx.fillRect(nx - nr, ny - nr, nr * 2, nr * 2);
+    }
+
+    /* threads of light */
+    ctx.lineWidth = 1;
+    for (var i = 0; i < threads.length; i++) {
+      var th = threads[i];
+      ctx.strokeStyle = rgba(blend(th.c, EMBER, warmth * 0.5), 0.18 + level * 0.3);
+      ctx.beginPath();
+      for (var k = 0; k <= 140; k++) {
+        var u = k / 140;
+        var tt = calm ? 0 : t;
+        var yy = th.y + th.amp * Math.sin(u * th.k * 6.283 + tt * th.sp + th.ph)
+                      + th.amp * 0.5 * Math.sin(u * th.k * 11 - tt * th.sp * 1.7 + th.ph * 2);
+        var xx = (u * 1.2 - 0.1) * W, yp = yy * H;
+        /* threads bend around the sphere instead of crossing it */
+        var dx = xx - cx, dy = yp - cy, dd = Math.sqrt(dx * dx + dy * dy) || 1, clear = R * 1.5;
+        if (dd < clear) { yp = cy + (dy >= 0 ? 1 : -1) * Math.sqrt(Math.max(0, clear * clear - dx * dx)); }
+        if (k === 0) ctx.moveTo(xx, yp); else ctx.lineTo(xx, yp);
+      }
+      ctx.stroke();
+    }
+
+    drawDust(false, cx, cy, R, t, tint);
+
+    /* halo and core */
+    var hg = ctx.createRadialGradient(cx, cy, 0, cx, cy, R * 2.3);
+    hg.addColorStop(0, rgba(coreCol, Math.min(1, (0.3 + level * 0.32) * glow)));
+    hg.addColorStop(0.45, rgba(blend(VIOLET, EMBER, warmth * 0.5), 0.12 + level * 0.1));
+    hg.addColorStop(1, rgba(coreCol, 0));
+    ctx.fillStyle = hg;
+    ctx.fillRect(cx - R * 2.3, cy - R * 2.3, R * 4.6, R * 4.6);
+
+    var cr0 = R * (0.3 + level * 0.35);
+    var cg0 = ctx.createRadialGradient(cx, cy, 0, cx, cy, cr0);
+    cg0.addColorStop(0, "rgba(255,255,255," + (0.75 + level * 0.25).toFixed(3) + ")");
+    cg0.addColorStop(0.35, rgba(coreCol, 0.55));
+    cg0.addColorStop(1, rgba(coreCol, 0));
+    ctx.fillStyle = cg0;
+    ctx.beginPath(); ctx.arc(cx, cy, cr0, 0, 6.283); ctx.fill();
+
+    /* light flare through the core */
+    var fl = R * (1.6 + level * 1.6);
+    var fg = ctx.createLinearGradient(cx - fl, cy, cx + fl, cy);
+    fg.addColorStop(0, rgba(coreCol, 0));
+    fg.addColorStop(0.5, rgba(coreCol, 0.35 + level * 0.4));
+    fg.addColorStop(1, rgba(coreCol, 0));
+    ctx.fillStyle = fg;
+    ctx.fillRect(cx - fl, cy - 0.75, fl * 2, 1.5);
+
+    /* glints inside the core */
+    for (var i = 0; i < glints.length; i++) {
+      var gl = glints[i];
+      var ga = gl.a + t * 0.3, gr = gl.r * R * (0.42 + level * 0.3);
+      var gb = calm ? 0.5 : 0.5 + 0.5 * Math.sin(t * gl.sp + gl.ph);
+      ctx.fillStyle = "rgba(255,255,255," + (0.15 + 0.75 * gb * (1 - gl.r)).toFixed(3) + ")";
+      ctx.fillRect(cx + Math.cos(ga) * gr, cy + Math.sin(ga) * gr, 1.2, 1.2);
+    }
+
+    /* corona rays */
+    ctx.lineWidth = 1.6;
+    ctx.lineCap = "round";
+    for (var i = 0; i < RAYS; i++) {
+      var v = rays[i].v;
+      if (v < 0.02) continue;
+      var ra = i / RAYS * 6.283 + spin * 0.25;
+      var r0 = R * (1.16 + level * 0.25), r1 = r0 + R * v * 0.95;
+      var ux = Math.cos(ra), uy = Math.sin(ra);
+      var rg = ctx.createLinearGradient(cx + ux * r0, cy + uy * r0, cx + ux * r1, cy + uy * r1);
+      rg.addColorStop(0, rgba(coreCol, 0.2 + v * 0.7));
+      rg.addColorStop(1, rgba(blend(coreCol, VIOLET, 0.5), 0));
+      ctx.strokeStyle = rg;
+      ctx.beginPath(); ctx.moveTo(cx + ux * r0, cy + uy * r0); ctx.lineTo(cx + ux * r1, cy + uy * r1); ctx.stroke();
+    }
+
+    /* sparks thrown off while speaking */
+    for (var i = sparks.length - 1; i >= 0; i--) {
+      var sk = sparks[i];
+      sk.r += sk.v * dt; sk.life -= dt * 0.9;
+      if (sk.life <= 0) { sparks.splice(i, 1); continue; }
+      ctx.fillStyle = "rgba(255,236,214," + (sk.life * 0.9).toFixed(3) + ")";
+      var sz2 = 1 + sk.life * 1.4;
+      ctx.fillRect(cx + Math.cos(sk.a) * sk.r * R, cy + Math.sin(sk.a) * sk.r * R, sz2, sz2);
+    }
+
+    /* voice meter at the left edge */
+    if (voiceOn > 0.02) {
+      for (var i = 0; i < 21; i++) {
+        var mv = rays[(i * 3) % RAYS].v;
+        var env = Math.sin((i + 0.5) / 21 * Math.PI);
+        var bw = 3 + mv * env * 30;
+        ctx.fillStyle = rgba(coreCol, voiceOn * (0.3 + mv * 0.6));
+        ctx.fillRect(16, cy + (i - 10) * 5 - 1, bw, 2);
+      }
+    }
+
+    /* sphere */
+    var cs = Math.cos(spin), sn = Math.sin(spin);
+    var tilt = 0.35, ct = Math.cos(tilt), st = Math.sin(tilt);
+    for (var i = 0; i < N; i++) {
+      var p = pts[i];
+      var wave = Math.sin(p.y * 6 + t * 3 + p.s * 6.28) * 0.5 + Math.sin(p.x * 5 - t * 2.2) * 0.5;
+      var r = 1 - pull * 0.1 + level * 0.34 * wave + level * 0.1;
+      var x = p.x * cs - p.z * sn, z = p.x * sn + p.z * cs, y = p.y;
+      var y2 = y * ct - z * st, z2 = y * st + z * ct;
+      var depth = (z2 + 1) / 2;
+      var px = cx + x * r * R, py = cy + y2 * r * R;
+      var size = (0.5 + depth * 1.3) * (1 + level * 0.6);
+      var base = p.s > 0.8 ? VIOLET : p.s > 0.55 ? TEAL : ICE;
+      ctx.fillStyle = rgba(blend(base, EMBER, warmth * (0.35 + 0.65 * p.s)), 0.14 + depth * 0.66);
+      ctx.beginPath();
+      ctx.arc(px, py, size, 0, 6.283);
+      ctx.fill();
+    }
+
+    drawDust(true, cx, cy, R, t, tint);
+
+    /* meteors */
+    if (!calm && now > nextMeteor) {
+      nextMeteor = now + 3500 + Math.random() * 6000;
+      var fromLeft = Math.random() < 0.5;
+      meteors.push({ x: fromLeft ? -20 : W + 20, y: Math.random() * H * 0.6, vx: (fromLeft ? 1 : -1) * (260 + Math.random() * 220), vy: 70 + Math.random() * 90, life: 1 });
+    }
+    for (var i = meteors.length - 1; i >= 0; i--) {
+      var m = meteors[i];
+      m.x += m.vx * dt; m.y += m.vy * dt; m.life -= dt * 0.55;
+      if (m.life <= 0 || m.x < -80 || m.x > W + 80) { meteors.splice(i, 1); continue; }
+      var tx = m.x - m.vx * 0.16, ty = m.y - m.vy * 0.16;
+      var mg = ctx.createLinearGradient(m.x, m.y, tx, ty);
+      mg.addColorStop(0, "rgba(255,255,255," + (0.85 * m.life).toFixed(3) + ")");
+      mg.addColorStop(1, rgba(ICE, 0));
+      ctx.strokeStyle = mg; ctx.lineWidth = 1.4;
+      ctx.beginPath(); ctx.moveTo(m.x, m.y); ctx.lineTo(tx, ty); ctx.stroke();
+    }
+
+    ctx.globalCompositeOperation = "source-over";
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
