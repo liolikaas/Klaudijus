@@ -433,6 +433,8 @@
         <option value="ukas">Ūkas (violetinė)</option>
       </select>
 
+      <label class="check"><input type="checkbox" id="setNarrate"> <span>Gyvas pokalbis: kai užtrunka, pasakau „minutėlę“, „ieškau“, „dar galvoju“</span></label>
+
       <label class="check"><input type="checkbox" id="setAmbient"> <span>Namų ekranas: po minutės ramybės rodau laikrodį</span></label>
 
       <label class="check" id="handsRow"><input type="checkbox" id="setHands"> <span>Rankų laisvė: po atsakymo vėl klausausi, o padiktuotą tekstą išsiunčiu pats po pauzės</span></label>
@@ -1050,7 +1052,7 @@
   }
 
   /* ---------- settings and memory ---------- */
-  var settings = { name: "Asistentas", tone: "draugiškai ir šiltai", about: "", voice: "buttery", rate: 1, handsfree: false, theme: "auto", ambient: true, voiceOn: true, user: "", rules: DEFAULT_RULES, chat: true, info: !narrow() };
+  var settings = { name: "Asistentas", tone: "draugiškai ir šiltai", about: "", voice: "buttery", rate: 1, handsfree: false, theme: "auto", ambient: true, voiceOn: true, narrate: true, user: "", rules: DEFAULT_RULES, chat: true, info: !narrow() };
   var mem = { notes: [], history: [], summary: "", summaryAt: 0 };
   var LS = "asist.v2", touched = false;
 
@@ -1065,6 +1067,7 @@
     if (typeof d.theme === "string" && setTheme.querySelector('option[value="' + d.theme + '"]')) settings.theme = d.theme;
     if (typeof d.ambient === "boolean") settings.ambient = d.ambient;
     if (typeof d.voiceOn === "boolean") settings.voiceOn = d.voiceOn;
+    if (typeof d.narrate === "boolean") settings.narrate = d.narrate;
     if (typeof d.chat === "boolean") settings.chat = d.chat;
     if (typeof d.info === "boolean") settings.info = d.info;
     if (typeof d.user === "string") settings.user = d.user.trim().slice(0, 30);
@@ -1186,6 +1189,7 @@
     setTheme.value = settings.theme;
     setAmbient.checked = settings.ambient;
     $("setVoiceOn").checked = settings.voiceOn;
+    $("setNarrate").checked = settings.narrate;
     $("voiceCard").classList.toggle("off", !settings.voiceOn);
     $("voiceStateTxt").textContent = settings.voiceOn ? "Įjungtas: atsakymus jis pasako garsiai." : "Išjungtas: atsako tik tekstu.";
     muted = !settings.voiceOn;
@@ -1260,6 +1264,7 @@
     if (muted) { stopSpeaking(); if (state === "speaking") setState("idle"); }
     persist("settings");
   });
+  $("setNarrate").addEventListener("change", function () { settings.narrate = $("setNarrate").checked; persist("settings"); });
   setAmbient.addEventListener("change", function () {
     settings.ambient = setAmbient.checked; persist("settings"); wake();
   });
@@ -1351,6 +1356,7 @@
       muteBtn.hidden = false;
       voiceRow.hidden = false;
       t.onState(function (e) {
+        if (fillerActive) return;
         if (e.state === "speaking") { reveal(); setState("speaking"); }
         else if (e.state === "idle" && state === "speaking") setState("idle");
       });
@@ -1495,6 +1501,35 @@
     } else { try { input.focus(); } catch (e) {} }
   }
 
+  /* living conversation: short spoken remarks while he works */
+  var fillerActive = false, fillerP = null;
+  var FILLERS = {
+    "draugiškai ir šiltai": { first: ["Hmm, minutėlę.", "Gerai, pagalvoju.", "Tuoj, sudėliosiu mintis."], search: ["Pažiūrėsiu internete, minutėlę."], long: ["Dar galvoju, tuoj.", "Užtrunka, bet jau beveik."], vlong: ["Ilgiau nei tikėjausi, bet nepaleidžiu."] },
+    "ramiai ir rimtai": { first: ["Minutėlę.", "Tikrinu."], search: ["Ieškau internete."], long: ["Dar tikrinu."], vlong: ["Užtrunka ilgiau. Tęsiu."] },
+    "žaismingai, su humoru": { first: ["Palauk, smegenys kraunasi.", "Minutėlę, ieškau gero atsakymo ir dar geresnio pokšto.", "Hmm, įdomu. Duok sekundę."], search: ["Einu pasikapstyti internete, tuoj grįšiu."], long: ["Vis dar galvoju. Tai ne lėtumas, tai gilumas."], vlong: ["Užtrunka. Tikiuosi, kava jau išvirė."] },
+    "aštriai ir drąsiai": { first: ["Na gerai, duok sekundę.", "Hm. Palauk."], search: ["Pasikapstysiu internete, nekantruoli."], long: ["Dar kapstausi. Ramiai."], vlong: ["Taip, vis dar čia. Kokybė užtrunka."] },
+    "išprotėjęs cinikas": { first: ["Ach, žmogiškas klausimas. Sekundę.", "Kosmosas kraunasi, palauk.", "Hmm. Visi mano balsai ginčijasi. Minutėlę."], search: ["Nėrsiu į jūsų internetą. Palinkėk man sėkmės."], long: ["Vis dar čia. Galaktikos irgi ne per dieną gimė."], vlong: ["Užtrunka. Išgerk arbatos, aš pagalvosiu už mus abu."] },
+    "labai trumpai ir dalykiškai": { first: ["Minutę."], search: ["Ieškau."], long: ["Dar ieškau."], vlong: ["Užtrunka."] }
+  };
+  function pick(a) { return a[Math.floor(Math.random() * a.length)]; }
+  function speakFiller(text, bubble) {
+    if (!settings.narrate || !busy) return;
+    if (bubble && bubble.textContent.length < 120) { bubble.textContent = text; captionEl.textContent = text; scrollTalk(); }
+    if (!tts || muted || fillerActive) return;
+    fillerActive = true;
+    fillerP = tts.speak(text, { voice: settings.voice, rate: settings.rate }).catch(noop).then(function () { fillerActive = false; });
+  }
+  function startFillers(question, bubble) {
+    var set = FILLERS[settings.tone] || FILLERS["draugiškai ir šiltai"];
+    var willSearch = window.__canSearch && window.__canSearch() &&
+      /\b(orai|oras|orų|naujien|šiandien|kaina|kainos|kursas|rezultat|kas vyksta|ieškok|surask|paieškok)/i.test(question);
+    return [
+      setTimeout(function () { speakFiller(pick(willSearch ? set.search : set.first), bubble); }, willSearch ? 700 : 1500),
+      setTimeout(function () { speakFiller(pick(set.long), bubble); }, 8500),
+      setTimeout(function () { speakFiller(pick(set.vlong), bubble); }, 19000)
+    ];
+  }
+
   var pending = null, pendingT = null;
   function reveal() {
     clearTimeout(pendingT);
@@ -1506,6 +1541,11 @@
 
   function speak(text, preview) {
     if (!text) return;
+    if (fillerActive && fillerP) {
+      var waitFor = fillerP; fillerP = null;
+      Promise.race([waitFor, new Promise(function (r) { setTimeout(r, 4000); })]).then(function () { speak(text, preview); });
+      return;
+    }
     if (muted) { reveal(); setState("idle"); afterAnswer(preview); return; }
     if (tts) {
       tts.speak(text.slice(0, 2000), { voice: settings.voice, rate: settings.rate }).then(function () {
@@ -1692,6 +1732,7 @@
 
     var bubble = addMsg("bot", "…");
     var answer = "";
+    var fillerTimers = startFillers(question, bubble);
     sample(messages, {
       modelTier: "quick",
       cache: false,
@@ -1728,6 +1769,7 @@
         code === "api_error" ? "Klaida iš Anthropic: " + ((err && err.message) || "nežinoma") :
         "Nepavyko gauti atsakymo. Bandyk dar kartą.";
     }).then(function () {
+      fillerTimers.forEach(clearTimeout);
       busy = false; sendBtn.disabled = false;
       if (!narrow() && !listening) { try { input.focus(); } catch (e) {} }
       if (answer) speak(answer, false); else setState("idle");
