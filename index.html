@@ -480,6 +480,29 @@
   .keys .fx input { grid-column: 1 / -1; width: 100%; accent-color: var(--ember); }
   .keys .fx output { color: var(--ice); font-variant-numeric: tabular-nums; }
   .keys button.wide { margin-top: 0; }
+  .model-chip {
+    font: inherit; font-size: 13px; font-weight: 600; color: var(--ice); cursor: pointer;
+    background: rgba(88, 184, 255, 0.1); border: 1px solid var(--ice); border-radius: 999px; padding: 6px 12px;
+    width: auto; height: auto; display: inline-block;
+  }
+  .model-menu {
+    position: fixed; top: 60px; right: 16px; z-index: 6; width: min(300px, calc(100% - 32px));
+    background: rgba(7, 12, 26, 0.97); border: 1px solid var(--line); border-radius: 14px; padding: 6px;
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .model-menu[hidden] { display: none; }
+  .model-menu button {
+    font: inherit; text-align: left; cursor: pointer; color: var(--text); width: 100%; height: auto;
+    background: transparent; border: 1px solid transparent; border-radius: 10px; padding: 8px 10px;
+    display: flex !important; flex-direction: column; align-items: flex-start !important; gap: 1px;
+  }
+  @media (max-width: 820px) {
+    .top .state { display: none; }
+    .model-chip { padding: 5px 10px; font-size: 12px; }
+  }
+  .model-menu button small { color: var(--muted); font-size: 12px; }
+  .model-menu button[aria-checked="true"] { border-color: var(--ice); background: rgba(88, 184, 255, 0.1); }
+  .model-menu button[aria-checked="true"] b::after { content: "  ✓"; color: var(--ice); }
   .keys .file-btn {
     position: relative; overflow: hidden; display: inline-block; cursor: pointer;
     font: inherit; font-size: 14px; color: var(--ice); padding: 10px 18px; margin: 0;
@@ -503,6 +526,31 @@
     if (saved) { Object.keys(K).forEach(function (k) { if (k !== "fx" && typeof saved[k] === "string") K[k] = saved[k]; });
       if (saved.fx) Object.keys(K.fx).forEach(function (k) { if (typeof saved.fx[k] === "number") K.fx[k] = saved.fx[k]; }); }
   } catch (e) {}
+  var MODELS = [
+    { id: "claude-haiku-5-5", key: "haiku", name: "Haiku", note: "greičiausias ir pigiausias" },
+    { id: "claude-sonnet-5-5", key: "sonnet", name: "Sonnet", note: "protingesnis, taiklesnis humoras, brangesnis" },
+    { id: "claude-opus-5-5", key: "opus", name: "Opus", note: "galingiausias, lėtesnis ir brangus" },
+    { id: "claude-fable-5-2", key: "fable", name: "Fable", note: "aukščiausia klasė, brangiausias" }
+  ];
+  function modelInfo(id) {
+    for (var i = 0; i < MODELS.length; i++) if (MODELS[i].id === id) return MODELS[i];
+    return { id: id, key: id, name: id.replace(/^claude-/, ""), note: "" };
+  }
+  var modelListeners = [];
+  function setModel(id) {
+    var m = null;
+    for (var i = 0; i < MODELS.length; i++) if (MODELS[i].id === id || MODELS[i].key === String(id).toLowerCase()) m = MODELS[i];
+    if (!m) return null;
+    K.anModel = m.id;
+    if (snapK) snapK.anModel = m.id;
+    try { localStorage.setItem(CFG_KEY, JSON.stringify(drafting && snapK ? snapK : K)); } catch (e) {}
+    modelListeners.forEach(function (f) { f(); });
+    return m;
+  }
+  window.__models = MODELS;
+  window.__currentModel = function () { return modelInfo(K.anModel); };
+  window.__setModel = setModel;
+
   var searchBroken = false;
   window.__canSearch = function () { return K.search === "on" && !searchBroken; };
   var drafting = false, snapK = null, onDirty = function () {}, syncInputs = function () {};
@@ -772,7 +820,63 @@
     box.appendChild(el("p", { "class": "hint" }, "Raktai laikomi tik šioje naršyklėje. Niekam jų nesiųsk."));
     var f1 = field(box, "kAn", "Anthropic API raktas", "password", K.anKey, "sk-ant-…", function (v) { K.anKey = v; });
     f1.setAttribute("type", "text"); f1.style.webkitTextSecurity = "disc";
-    field(box, "kAnModel", "Claude modelis", "text", K.anModel, "claude-haiku-5-5", function (v) { K.anModel = v || "claude-haiku-5-5"; });
+    box.appendChild(el("label", { "for": "kAnModel" }, "Claude modelis (jo protas)"));
+    var msel = el("select", { id: "kAnModel" });
+    function fillModels() {
+      msel.textContent = "";
+      MODELS.forEach(function (m) { msel.appendChild(el("option", { value: m.id }, m.name + ": " + m.note)); });
+      if (!MODELS.some(function (m) { return m.id === K.anModel; })) msel.appendChild(el("option", { value: K.anModel }, K.anModel));
+      msel.value = K.anModel;
+    }
+    fillModels();
+    msel.addEventListener("change", function () { K.anModel = msel.value; save(); refresh(); updateChip(); });
+    box.appendChild(msel);
+    var mrow = el("div", { "class": "rowx" });
+    var mload = el("button", { type: "button", "class": "wide" }, "Atnaujinti modelių sąrašą");
+    var mnote = el("p", { "class": "hint", "aria-live": "polite" }, "Balsu: „Klaudijau, persijunk į Sonnet“.");
+    mload.addEventListener("click", function () {
+      if (!K.anKey) { mnote.textContent = "Pirma įvesk Anthropic raktą."; return; }
+      mnote.textContent = "Kraunu…";
+      fetch("https://api.anthropic.com/v1/models?limit=100", { headers: { "x-api-key": K.anKey, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" } })
+        .then(function (r) { return r.json().then(function (d) { if (!r.ok) throw new Error((d.error && d.error.message) || ("HTTP " + r.status)); return d; }); })
+        .then(function (d) {
+          var added = 0;
+          (d.data || []).forEach(function (m) {
+            if (!/^claude-/.test(m.id) || MODELS.some(function (x) { return x.id === m.id; })) return;
+            MODELS.push({ id: m.id, key: m.id.replace(/^claude-/, ""), name: m.display_name || m.id, note: "iš Anthropic sąrašo" });
+            added++;
+          });
+          fillModels(); buildMenu();
+          mnote.textContent = "Tau pasiekiami modeliai įkelti. Naujų pridėta: " + added + ".";
+        }).catch(function (e) { mnote.textContent = "Nepavyko: " + e.message; });
+    });
+    mrow.appendChild(mload); box.appendChild(mrow); box.appendChild(mnote);
+
+    /* model chip in the header: tap to pick another brain */
+    var top = document.querySelector(".top");
+    var chip = el("button", { type: "button", id: "modelChip", "class": "model-chip", "aria-haspopup": "true", "aria-expanded": "false" });
+    var menu = el("div", { id: "modelMenu", "class": "model-menu", role: "menu" }); menu.hidden = true;
+    function updateChip() { chip.textContent = modelInfo(K.anModel).name; chip.setAttribute("aria-label", "Modelis: " + modelInfo(K.anModel).name + ". Pakeisti"); }
+    function buildMenu() {
+      menu.textContent = "";
+      MODELS.forEach(function (m) {
+        var b = el("button", { type: "button", role: "menuitemradio", "aria-checked": String(m.id === K.anModel) });
+        var t1 = el("b", null, m.name), t2 = el("small", null, m.note);
+        b.appendChild(t1); b.appendChild(t2);
+        b.addEventListener("click", function () { setModel(m.id); closeMenu(); });
+        menu.appendChild(b);
+      });
+    }
+    function closeMenu() { menu.hidden = true; chip.setAttribute("aria-expanded", "false"); }
+    chip.addEventListener("click", function (e) {
+      e.stopPropagation();
+      if (!menu.hidden) { closeMenu(); return; }
+      buildMenu(); menu.hidden = false; chip.setAttribute("aria-expanded", "true");
+    });
+    document.addEventListener("click", function (e) { if (!menu.hidden && !menu.contains(e.target)) closeMenu(); });
+    if (top) { top.insertBefore(chip, top.firstChild); document.body.appendChild(menu); }
+    updateChip();
+    modelListeners.push(function () { updateChip(); fillModels(); buildMenu(); refresh(); });
     var f2 = field(box, "kEl", "ElevenLabs API raktas", "password", K.elKey, "", function (v) { K.elKey = v; });
     f2.setAttribute("type", "text"); f2.style.webkitTextSecurity = "disc";
 
@@ -835,7 +939,7 @@
     });
     syncInputs = function () {
       var set = function (id, v) { var e = document.getElementById(id); if (e) e.value = v; };
-      set("kAn", K.anKey); set("kAnModel", K.anModel); set("kEl", K.elKey);
+      set("kAn", K.anKey); fillModels(); updateChip(); set("kEl", K.elKey);
       set("kVoiceId", K.elVoice); set("kElModel", K.elModel);
       cb.checked = K.search === "on";
       fill(K.elVoice ? [{ voice_id: K.elVoice, name: K.elVoiceName || K.elVoice }] : []);
@@ -1486,6 +1590,12 @@
     s += "\n\nVisada galioja: būk šiltas ir asmeniškas, bet sąžiningas. Jei žmogus klysta arba kas nors gali jam pakenkti, " +
       "pasakyk tai švelniai, net jei taisyklės prašo tik pritarti. Nevaidink žmogaus ir neteik, kad esi vienintelis jo draugas; " +
       "palaikyk jo ryšius su artimaisiais.";
+    if (window.__models && window.__currentModel) {
+      var cm = window.__currentModel();
+      s += "\n\nDabar veiki modeliu " + cm.name + ". Galimi modeliai: " +
+        window.__models.slice(0, 4).map(function (m) { return m.key + " (" + m.note + ")"; }).join(", ") +
+        ". Jei žmogus prašo persijungti į kitą modelį, iškviesk įrankį switch_model ir trumpai, savo charakteriu patvirtink.";
+    }
     if (mem.summary) s += "\n\nTavo ilgalaikė santrauka apie žmogų ir jūsų pokalbius (naudokis ja natūraliai, necituok jos):\n" + mem.summary;
     if (mem.notes.length) s += "\n\nKą esi įsiminęs iš ankstesnių pokalbių:\n- " + mem.notes.join("\n- ");
     s += "\n\nJei žmogus paprašo ką nors įsiminti arba pasako ilgalaikį faktą apie save (vardą, pomėgį, planą), " +
@@ -1531,6 +1641,17 @@
     }).then(function () { summarizing = false; });
   }
 
+  var switchModelTool = {
+    name: "switch_model",
+    description: "Perjungia, kuriuo Claude modeliu veiki. Naudok, kai žmogus prašo persijungti į kitą modelį (pvz. „persijunk į Sonnet“).",
+    inputSchema: { type: "object", properties: { model: { type: "string", enum: ["haiku", "sonnet", "opus", "fable"], description: "Modelio trumpas pavadinimas" } }, required: ["model"] },
+    execute: function (inp) {
+      var m = window.__setModel && window.__setModel(inp && inp.model);
+      if (!m) throw new Error("Tokio modelio nėra");
+      return { switched_to: m.name, note: m.note };
+    }
+  };
+
   var rememberTool = {
     name: "remember",
     description: "Įsimena vieną trumpą ilgalaikį faktą apie žmogų, kad jis būtų žinomas kituose pokalbiuose.",
@@ -1574,7 +1695,7 @@
     sample(messages, {
       modelTier: "quick",
       cache: false,
-      tools: [rememberTool],
+      tools: window.__models ? [rememberTool, switchModelTool] : [rememberTool],
       onText: function (e) {
         var shown = splitMood(e.text).text;
         if (shown && !holdText()) { bubble.textContent = shown; captionEl.textContent = shown; scrollTalk(); }
