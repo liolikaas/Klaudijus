@@ -1790,7 +1790,6 @@
         captionEl.textContent = bubble.textContent;
       }
       if (answer) mem.history.push({ role: "assistant", content: answer });
-      mem.lastSeen = Date.now();
       else mem.history.pop();
       persist("memory");
       maybeSummarize();
