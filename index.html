@@ -1714,6 +1714,42 @@
     var th = golden * i;
     pts.push({ x: Math.cos(th) * rad, y: y, z: Math.sin(th) * rad, s: Math.random() });
   }
+  /* where each point lands on screen this frame, for the network on top */
+  var PX = new Float32Array(N), PY = new Float32Array(N), PD = new Float32Array(N), PB = new Float32Array(N);
+
+  /* neural network: a few hundred points are neurons joined to their nearest neighbours */
+  var NEU = 210, neurons = [], edges = [], adj = {};
+  for (var k = 0; k < NEU; k++) neurons.push(Math.min(N - 1, Math.floor((k + Math.random() * 0.8) / NEU * N)));
+  for (var a = 0; a < NEU; a++) {
+    var pa = pts[neurons[a]], near = [];
+    for (var b = 0; b < NEU; b++) {
+      if (a === b) continue;
+      var pb = pts[neurons[b]], dx = pa.x - pb.x, dy = pa.y - pb.y, dz = pa.z - pb.z;
+      near.push([dx * dx + dy * dy + dz * dz, b]);
+    }
+    near.sort(function (u, v) { return u[0] - v[0]; });
+    for (var q = 0; q < 3; q++) {
+      var bb = near[q][1];
+      var ia = neurons[a], ib = neurons[bb], dup = ia === ib;
+      for (var e = 0; e < (adj[ia] || []).length; e++) { var ed = edges[adj[ia][e]]; if (ed[0] === ib || ed[1] === ib) dup = true; }
+      if (dup) continue;
+      edges.push([ia, ib]);
+      (adj[ia] = adj[ia] || []).push(edges.length - 1);
+      (adj[ib] = adj[ib] || []).push(edges.length - 1);
+    }
+  }
+  var thoughts = [];
+  function newThought() { return { e: Math.floor(Math.random() * edges.length), p: 0, dir: Math.random() < 0.5 ? 1 : -1, sp: 0.8 + Math.random() * 1.4, hops: 0 }; }
+
+  /* energy pulses: a wave runs over the surface from a point facing the viewer */
+  var pulses = [], lastPulse = 0, prevLevel = 0, coreFlash = 0;
+  function firePulse(strength) {
+    var ox = Math.random() - 0.5, oy = Math.random() - 0.5, oz = 0.9 + Math.random() * 0.6, ol = Math.sqrt(ox * ox + oy * oy + oz * oz);
+    pulses.push({ x: ox / ol, y: oy / ol, z: oz / ol, ph: 0, str: strength });
+    if (pulses.length > 5) pulses.shift();
+    coreFlash = Math.min(1, coreFlash + strength * 0.7);
+  }
+  var LIx = -0.45, LIy = -0.55, LIz = 0.7, LIl = Math.sqrt(LIx * LIx + LIy * LIy + LIz * LIz); LIx /= LIl; LIy /= LIl; LIz /= LIl;
 
   /* orbiting dust disk */
   var dust = [];
@@ -1888,12 +1924,15 @@
       var real = window.__voiceMeter ? window.__voiceMeter() : null;
       if (real) {
         target = real.level;
+        if (real.level - prevLevel > 0.1 && real.level > 0.42 && now - lastPulse > 230) { lastPulse = now; firePulse(0.5 + real.level * 0.6); }
+        prevLevel = real.level;
         for (var i = 0; i < RAYS; i++) rays[i].to = real.bins[i % real.bins.length] * 1.15;
         if (real.level > 0.62 && sparks.length < 60 && Math.random() < 0.35) {
           sparks.push({ a: Math.random() * 6.283, r: 1.05, v: 0.5 + Math.random() * 0.9, life: 1 });
         }
       } else if (now - lastBeat > 95) {
         lastBeat = now; target = 0.25 + Math.random() * 0.75;
+        if (target > 0.72 && now - lastPulse > 280) { lastPulse = now; firePulse(0.5 + target * 0.5); }
         var lobe = Math.random() * 6.283;
         for (var i = 0; i < RAYS; i++) {
           var near = 0.5 + 0.5 * Math.cos(i / RAYS * 6.283 * 3 + lobe);
@@ -2150,7 +2189,17 @@
       ctx.fillRect(cx + x * r0 * R - sz / 2, cy + y2 * r0 * R - sz / 2, sz, sz);
     }
 
-    /* sphere */
+    /* update pulses */
+    for (var k = pulses.length - 1; k >= 0; k--) { pulses[k].ph += dt * (calm ? 0.5 : 1.25); if (pulses[k].ph > 1.25) pulses.splice(k, 1); }
+    coreFlash = Math.max(0, coreFlash - dt * 1.8);
+    if (coreFlash > 0.01) {
+      var cfR = R * (0.45 + coreFlash * 0.35), cf = ctx.createRadialGradient(cx, cy, 0, cx, cy, cfR);
+      cf.addColorStop(0, "rgba(255,255,255," + (coreFlash * 0.55).toFixed(3) + ")");
+      cf.addColorStop(1, rgba(coreCol, 0));
+      ctx.fillStyle = cf; ctx.beginPath(); ctx.arc(cx, cy, cfR, 0, 6.283); ctx.fill();
+    }
+
+    /* sphere: lit from the upper left, with pulse waves running over it */
     var cs = Math.cos(spin), sn = Math.sin(spin);
     var tilt = 0.35, ct = Math.cos(tilt), st = Math.sin(tilt);
     for (var i = 0; i < N; i++) {
@@ -2159,14 +2208,81 @@
       var r = 1 - pull * 0.1 + level * 0.34 * wave + level * 0.1;
       var x = p.x * cs - p.z * sn, z = p.x * sn + p.z * cs, y = p.y;
       var y2 = y * ct - z * st, z2 = y * st + z * ct;
+      var boost = 0;
+      for (var k = 0; k < pulses.length; k++) {
+        var pu = pulses[k], dot = x * pu.x + y2 * pu.y + z2 * pu.z;
+        var ang = Math.acos(dot > 1 ? 1 : dot < -1 ? -1 : dot), dd = ang - pu.ph * Math.PI;
+        boost += Math.exp(-dd * dd * 22) * pu.str * (1.25 - pu.ph);
+      }
+      r += boost * 0.11;
       var depth = (z2 + 1) / 2;
+      var lit = (x * LIx + y2 * LIy + z2 * LIz) * 0.5 + 0.5;
+      var shade = 0.32 + 0.68 * lit * lit;
       var px = cx + x * r * R, py = cy + y2 * r * R;
-      var size = (0.5 + depth * 1.3) * (1 + level * 0.6);
+      PX[i] = px; PY[i] = py; PD[i] = depth; PB[i] = boost;
+      var size = (0.5 + depth * 1.3) * (1 + level * 0.6) * (1 + boost * 0.9);
       var base = p.s > 0.8 ? VIOLET : p.s > 0.55 ? TEAL : ICE;
-      ctx.fillStyle = rgba(blend(base, EMBER, warmth * (0.35 + 0.65 * p.s)), 0.14 + depth * 0.66);
+      var colp = blend(base, EMBER, warmth * (0.35 + 0.65 * p.s));
+      if (boost > 0.02) colp = blend(colp, [255, 255, 255], Math.min(0.85, boost));
+      ctx.fillStyle = rgba(colp, Math.min(1, (0.14 + depth * 0.66) * shade + boost * 0.6));
       ctx.beginPath();
       ctx.arc(px, py, size, 0, 6.283);
       ctx.fill();
+    }
+
+    /* neural network on the surface */
+    var netA = 0.04 + (state === "thinking" ? 0.1 : 0) + level * 0.06;
+    ctx.lineWidth = 0.6;
+    for (var pass = 0; pass < 2; pass++) {
+      ctx.strokeStyle = rgba(blend(ICE, EMBER, warmth * 0.6), pass ? netA * 1.7 : netA * 0.45);
+      ctx.beginPath();
+      for (var e = 0; e < edges.length; e++) {
+        var ea = edges[e][0], eb = edges[e][1], fr = PD[ea] > 0.5 && PD[eb] > 0.5;
+        if (fr !== !!pass) continue;
+        ctx.moveTo(PX[ea], PY[ea]); ctx.lineTo(PX[eb], PY[eb]);
+      }
+      ctx.stroke();
+    }
+    /* thoughts: sparks running along the connections */
+    var want = calm ? 2 : state === "thinking" ? 46 : state === "speaking" ? 18 : 5;
+    while (thoughts.length < want) thoughts.push(newThought());
+    if (thoughts.length > want && Math.random() < 0.1) thoughts.shift();
+    for (var k = 0; k < thoughts.length; k++) {
+      var th = thoughts[k];
+      th.p += dt * th.sp * (state === "thinking" ? 2.2 : 1);
+      if (th.p >= 1) {
+        var ed = edges[th.e], node = th.dir > 0 ? ed[1] : ed[0], nexts = adj[node] || [];
+        var nx = nexts[Math.floor(Math.random() * nexts.length)];
+        th.hops++;
+        if (nx === undefined || nx === th.e || th.hops > 7) { thoughts[k] = newThought(); continue; }
+        th.e = nx; th.p = 0; th.dir = edges[nx][0] === node ? 1 : -1;
+      }
+      var ed2 = edges[th.e], s0 = th.dir > 0 ? ed2[0] : ed2[1], s1 = th.dir > 0 ? ed2[1] : ed2[0];
+      var hx = PX[s0] + (PX[s1] - PX[s0]) * th.p, hy = PY[s0] + (PY[s1] - PY[s0]) * th.p;
+      var tp = Math.max(0, th.p - 0.35), tx = PX[s0] + (PX[s1] - PX[s0]) * tp, ty = PY[s0] + (PY[s1] - PY[s0]) * tp;
+      var dep = (PD[s0] + PD[s1]) / 2;
+      ctx.strokeStyle = rgba(blend(ICE, EMBER, warmth * 0.7), (0.15 + dep * 0.6));
+      ctx.lineWidth = 1.1;
+      ctx.beginPath(); ctx.moveTo(tx, ty); ctx.lineTo(hx, hy); ctx.stroke();
+      ctx.fillStyle = "rgba(255,255,255," + (0.3 + dep * 0.7).toFixed(3) + ")";
+      ctx.fillRect(hx - 1.2, hy - 1.2, 2.4, 2.4);
+    }
+
+    /* atmosphere: a glowing rim, brighter on the lit side */
+    var atmR = R * (1.03 - pull * 0.1 + level * 0.12), Lang = Math.atan2(LIy, LIx);
+    var atmCol = blend(blend(ICE, TEAL, 0.35), EMBER, warmth * 0.65);
+    var limb = ctx.createRadialGradient(cx, cy, atmR * 0.78, cx, cy, atmR * 1.02);
+    limb.addColorStop(0, rgba(atmCol, 0)); limb.addColorStop(1, rgba(atmCol, 0.12 + level * 0.08));
+    ctx.fillStyle = limb; ctx.beginPath(); ctx.arc(cx, cy, atmR * 1.02, 0, 6.283); ctx.fill();
+    var passes = [[R * 0.2, 0.05], [R * 0.07, 0.11], [1.6, 0.4]];
+    for (var ps = 0; ps < passes.length; ps++) {
+      ctx.lineWidth = passes[ps][0];
+      for (var k = 0; k < 64; k++) {
+        var a0 = k / 64 * 6.283, a1r = (k + 1.08) / 64 * 6.283, cosv = Math.cos((a0 + a1r) / 2 - Lang);
+        var f = 0.18 + 0.82 * Math.pow(Math.max(0, cosv), 1.4);
+        ctx.strokeStyle = rgba(atmCol, passes[ps][1] * f * (1 + level * 0.6));
+        ctx.beginPath(); ctx.arc(cx, cy, atmR + (ps === 0 ? R * 0.06 : 0), a0, a1r); ctx.stroke();
+      }
     }
 
     drawDust(true, cx, cy, R, t, tint);
