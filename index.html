@@ -688,10 +688,15 @@
       fetch("https://api.elevenlabs.io/v1/voices", { headers: { "xi-api-key": K.elKey } }).then(function (r) {
         return r.json().then(function (d) { if (!r.ok) throw new Error((d.detail && d.detail.message) || ("HTTP " + r.status)); return d; });
       }).then(function (d) {
-        var list = (d.voices || []).map(function (v) { return { voice_id: v.voice_id, name: v.name }; });
+        var list = (d.voices || []).map(function (v) {
+          var free = v.category === "premade";
+          return { voice_id: v.voice_id, name: (free ? "✓ " : "") + v.name + (free ? "" : " (reikia mokamo plano)"), free: free };
+        });
+        list.sort(function (a, b) { return (b.free ? 1 : 0) - (a.free ? 1 : 0); });
         fill(list);
-        if (!K.elVoice && list.length) { sel.selectedIndex = 0; sel.dispatchEvent(new Event("change")); }
-        note.textContent = "Rasta balsų: " + list.length + ". Jei savo nematai, ElevenLabs svetainėje pridėk jį prie „My Voices“.";
+        if (list.length && !list.some(function (v) { return v.voice_id === K.elVoice; })) { sel.selectedIndex = 0; sel.dispatchEvent(new Event("change")); }
+        var nFree = list.filter(function (v) { return v.free; }).length;
+        note.textContent = "Rasta balsų: " + list.length + ". Su ✓ pažymėti " + nFree + " veikia nemokamame plane, kiti tik su mokamu.";
       }).catch(function (e) { note.textContent = "Nepavyko: " + e.message; });
     });
     test.addEventListener("click", function () {
