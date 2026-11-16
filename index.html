@@ -708,6 +708,33 @@
     u.onerror = function () { if (cur && cur.rej === rej) { cur = null; emit("idle", "error"); rej({ code: "tts_error" }); } };
     window.speechSynthesis.cancel(); window.speechSynthesis.speak(u);
   }
+  /* free replays: short phrases (fillers, greetings) are generated once, then played from device storage */
+  var phraseDb = null;
+  function phraseOpen() {
+    if (phraseDb) return phraseDb;
+    phraseDb = new Promise(function (ok) {
+      try {
+        var rq = indexedDB.open("klaudijus.phrases", 1);
+        rq.onupgradeneeded = function () { rq.result.createObjectStore("a"); };
+        rq.onsuccess = function () { ok(rq.result); };
+        rq.onerror = function () { ok(null); };
+      } catch (e) { ok(null); }
+    });
+    return phraseDb;
+  }
+  function phraseGet(key) {
+    return phraseOpen().then(function (db) {
+      if (!db) return null;
+      return new Promise(function (ok) {
+        try { var g = db.transaction("a").objectStore("a").get(key); g.onsuccess = function () { ok(g.result ? g.result.slice(0) : null); }; g.onerror = function () { ok(null); }; }
+        catch (e) { ok(null); }
+      });
+    });
+  }
+  function phrasePut(key, ab) {
+    phraseOpen().then(function (db) { try { if (db) db.transaction("a", "readwrite").objectStore("a").put(ab, key); } catch (e) {} });
+  }
+
   function speak(text) {
     if (Array.isArray(text)) text = text.map(function (l) { return l.text; }).join(" ");
     return new Promise(function (res, rej) {
@@ -737,16 +764,22 @@
         rej(err && err.code ? err : { code: "tts_error" });
       }
       var jobs = chunks.map(function (chunk) {
-        return fetch("https://api.elevenlabs.io/v1/text-to-speech/" + encodeURIComponent(K.elVoice) + "?output_format=mp3_44100_128", {
-          method: "POST", signal: me.abort.signal,
-          headers: { "xi-api-key": K.elKey, "content-type": "application/json" },
-          body: JSON.stringify({ text: chunk, model_id: K.elModel || "eleven_v4", language_code: "lt" })
-        }).then(function (r) {
-          if (!r.ok) return r.json().catch(function () { return {}; }).then(function (d) {
-            var m = d && d.detail ? (d.detail.message || d.detail.status || JSON.stringify(d.detail)) : ("HTTP " + r.status);
-            throw { code: "tts_error", message: String(m) };
-          });
-          return r.arrayBuffer();
+        var ckey = (K.elVoice || "") + "|" + (K.elModel || "eleven_v4") + "|" + chunk;
+        var cacheable = chunk.length <= 140;
+        var getAb = cacheable ? phraseGet(ckey) : Promise.resolve(null);
+        return getAb.then(function (hit) {
+          if (hit) return hit;
+          return fetch("https://api.elevenlabs.io/v1/text-to-speech/" + encodeURIComponent(K.elVoice) + "?output_format=mp3_44100_128", {
+            method: "POST", signal: me.abort.signal,
+            headers: { "xi-api-key": K.elKey, "content-type": "application/json" },
+            body: JSON.stringify({ text: chunk, model_id: K.elModel || "eleven_v4", language_code: "lt" })
+          }).then(function (r) {
+            if (!r.ok) return r.json().catch(function () { return {}; }).then(function (d) {
+              var m = d && d.detail ? (d.detail.message || d.detail.status || JSON.stringify(d.detail)) : ("HTTP " + r.status);
+              throw { code: "tts_error", message: String(m) };
+            });
+            return r.arrayBuffer();
+          }).then(function (ab) { if (cacheable) phrasePut(ckey, ab.slice(0)); return ab; });
         }).then(function (ab) {
           return new Promise(function (ok, bad) { ctx.decodeAudioData(ab, ok, function () { bad({ code: "tts_error", message: "nepavyko perskaityti garso" }); }); });
         });
