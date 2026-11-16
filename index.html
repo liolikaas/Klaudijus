@@ -585,36 +585,62 @@
       cur = me;
       try { if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)(); if (ctx.state === "suspended") ctx.resume(); }
       catch (e) { cur = null; rej({ code: "no_audio" }); return; }
-      fetch("https://api.elevenlabs.io/v1/text-to-speech/" + encodeURIComponent(K.elVoice) + "?output_format=mp3_44100_128", {
-        method: "POST", signal: me.abort.signal,
-        headers: { "xi-api-key": K.elKey, "content-type": "application/json" },
-        body: JSON.stringify({ text: String(text).slice(0, 1500), model_id: K.elModel || "eleven_v4", language_code: "lt" })
-      }).then(function (r) {
-        if (!r.ok) return r.json().catch(function () { return {}; }).then(function (d) {
-          var m = d && d.detail ? (d.detail.message || d.detail.status || JSON.stringify(d.detail)) : ("HTTP " + r.status);
-          throw { code: "tts_error", message: String(m) };
-        });
-        return r.arrayBuffer();
-      }).then(function (ab) {
-        return new Promise(function (ok, bad) { ctx.decodeAudioData(ab, ok, function () { bad({ code: "tts_error", message: "nepavyko perskaityti garso" }); }); });
-      }).then(function (buffer) {
-        if (cur !== me) return;
-        if (!nodes) nodes = build();
-        me.src = ctx.createBufferSource(); me.src.buffer = buffer; me.src.connect(nodes.input);
-        me.sub = ctx.createBufferSource(); me.sub.buffer = buffer; me.sub.connect(nodes.subIn);
-        applyFx();
-        me.src.onended = function () { if (cur === me) { cur = null; emit("idle", "completed"); res(); } };
-        me.src.start(); me.sub.start();
-        status("stVoice", true, "Balsas: ElevenLabs" + (K.elVoiceName ? " (" + K.elVoiceName + ")" : ""));
-        emit("speaking");
-      }).catch(function (err) {
+
+      /* split into a few pieces: the first short piece is voiced and starts playing
+         while the rest are still being generated */
+      var parts = String(text).slice(0, 1500).split(/(?<=[.!?…])\s+/).filter(Boolean), chunks = [];
+      parts.forEach(function (p) {
+        var last = chunks[chunks.length - 1];
+        if (last && (last.length < 40 || chunks.length >= 3)) chunks[chunks.length - 1] = last + " " + p;
+        else chunks.push(p);
+      });
+      if (!chunks.length) chunks = [String(text)];
+
+      function fail(err) {
         if (cur !== me) return;
         cur = null;
         if (err && err.name === "AbortError") return;
         status("stVoice", false, "Balsas: klaida. " + ((err && err.message) || "nepavyko pasiekti ElevenLabs"));
         emit("idle", "error");
         rej(err && err.code ? err : { code: "tts_error" });
+      }
+      var jobs = chunks.map(function (chunk) {
+        return fetch("https://api.elevenlabs.io/v1/text-to-speech/" + encodeURIComponent(K.elVoice) + "?output_format=mp3_44100_128", {
+          method: "POST", signal: me.abort.signal,
+          headers: { "xi-api-key": K.elKey, "content-type": "application/json" },
+          body: JSON.stringify({ text: chunk, model_id: K.elModel || "eleven_v4", language_code: "lt" })
+        }).then(function (r) {
+          if (!r.ok) return r.json().catch(function () { return {}; }).then(function (d) {
+            var m = d && d.detail ? (d.detail.message || d.detail.status || JSON.stringify(d.detail)) : ("HTTP " + r.status);
+            throw { code: "tts_error", message: String(m) };
+          });
+          return r.arrayBuffer();
+        }).then(function (ab) {
+          return new Promise(function (ok, bad) { ctx.decodeAudioData(ab, ok, function () { bad({ code: "tts_error", message: "nepavyko perskaityti garso" }); }); });
+        });
       });
+      jobs.forEach(function (j) { j.catch(function () {}); });
+
+      var started = false;
+      function playPart(i) {
+        if (cur !== me) return;
+        if (i >= jobs.length) { cur = null; emit("idle", "completed"); res(); return; }
+        jobs[i].then(function (buffer) {
+          if (cur !== me) return;
+          if (!nodes) nodes = build();
+          me.src = ctx.createBufferSource(); me.src.buffer = buffer; me.src.connect(nodes.input);
+          me.sub = ctx.createBufferSource(); me.sub.buffer = buffer; me.sub.connect(nodes.subIn);
+          applyFx();
+          me.src.onended = function () { playPart(i + 1); };
+          me.src.start(); me.sub.start();
+          if (!started) {
+            started = true;
+            status("stVoice", true, "Balsas: ElevenLabs" + (K.elVoiceName ? " (" + K.elVoiceName.replace(/^✓ /, "") + ")" : ""));
+            emit("speaking");
+          }
+        }).catch(fail);
+      }
+      playPart(0);
     });
   }
   var tts = {
@@ -1024,7 +1050,7 @@
       muteBtn.hidden = false;
       voiceRow.hidden = false;
       t.onState(function (e) {
-        if (e.state === "speaking") setState("speaking");
+        if (e.state === "speaking") { reveal(); setState("speaking"); }
         else if (e.state === "idle" && state === "speaking") setState("idle");
       });
     } else if (webSpeech) {
@@ -1052,17 +1078,17 @@
         return new Promise(function (res, rej) {
           try {
             var started = false;
-            rec = new SR(); rec.lang = "lt-LT"; rec.interimResults = true; rec.continuous = true;
+            rec = new SR(); rec.lang = "lt-LT"; rec.interimResults = true; rec.continuous = !/Android/i.test(navigator.userAgent);
             rec.onstart = function () { started = true; cbS({ state: "listening" }); res(); };
             rec.onerror = function (e) {
               if (!started) rej({ code: e.error === "not-allowed" || e.error === "service-not-allowed" ? "not_granted" : e.error });
             };
             rec.onend = function () { if (started) cbS({ state: "idle", reason: "stopped" }); };
             rec.onresult = function (e) {
-              for (var i = e.resultIndex; i < e.results.length; i++) {
-                var r = e.results[i];
-                if (r.isFinal) cbF({ text: r[0].transcript }); else cbP({ text: r[0].transcript });
-              }
+              /* rebuild the whole phrase every time: Android repeats words when pieces are appended */
+              var whole = "";
+              for (var i = 0; i < e.results.length; i++) whole += " " + e.results[i][0].transcript;
+              cbP({ text: whole.replace(/\s+/g, " ").trim() });
             };
             rec.start();
           } catch (err) { rej({ code: "error" }); }
@@ -1155,13 +1181,23 @@
     else { try { input.focus(); } catch (e) {} }
   }
 
+  var pending = null, pendingT = null;
+  function reveal() {
+    clearTimeout(pendingT);
+    if (!pending) return;
+    var p = pending; pending = null;
+    p.bubble.textContent = p.text; captionEl.textContent = p.text; scrollTalk();
+  }
+  function holdText() { return !!tts && !muted; }
+
   function speak(text, preview) {
     if (!text) return;
-    if (muted) { setState("idle"); afterAnswer(preview); return; }
+    if (muted) { reveal(); setState("idle"); afterAnswer(preview); return; }
     if (tts) {
       tts.speak(text.slice(0, 2000), { voice: settings.voice, rate: settings.rate }).then(function () {
-        afterAnswer(preview);
+        reveal(); afterAnswer(preview);
       }, function (err) {
+        reveal();
         if (err && err.code === "not_granted") { muteBtn.hidden = true; voiceRow.hidden = true; tts = null; }
         if (state === "speaking") setState("idle");
       });
@@ -1202,9 +1238,9 @@
     s += " Kiekvieną atsakymą pradėk viena žyma laužtiniuose skliaustuose, rodančia atsakymo nuotaiką: " +
       "[joy] džiugi žinia ar pagyrimas, [wow] kas nors stebinančio, [serious] rimta ar įspėjanti tema, " +
       "[care] kai žmogui sunku ar liūdna, [calm] visa kita. Žymą rašyk tik vieną kartą, pačioje pradžioje.";
-    s += "\n\nApie šį langą: žmogus tau rašo arba kalba per mikrofono mygtuką ekrano apačioje (raudonas reiškia išjungtą, " +
-      "žalias reiškia, kad klausomasi). Jo kalba paverčiama tekstu ir tu gauni tekstą, o tavo atsakymas perskaitomas balsu. " +
-      "Jei klausia apie mikrofoną, paaiškink tai ir nukreipk į būsenos eilutę dešinėje. " + (micStatus ? "Dabartinė būsena: " + micStatus + "." : "");
+    s += "\n\nApie šį langą: žmogus tau kalba per mikrofoną arba rašo. Jo kalba paverčiama tekstu, todėl joje gali būti atpažinimo klaidų ar pasikartojančių žodžių: " +
+      "suprask, ką jis norėjo pasakyti, ir to nekomentuok. Tavo atsakymas perskaitomas balsu. " +
+      "Apie mikrofoną ir patį langą kalbėk tik tada, kai žmogus aiškiai to klausia.";
     if (settings.user) s += "\n\nŽmogų vadink vardu: " + settings.user + ".";
     if (settings.about) s += "\n\nApie žmogų, su kuriuo kalbi: " + settings.about;
     if (settings.rules) s += "\n\nŽmogaus nustatytos taisyklės, kaip su juo kalbėti:\n" + settings.rules;
@@ -1270,14 +1306,20 @@
       tools: [rememberTool],
       onText: function (e) {
         var shown = splitMood(e.text).text;
-        if (shown) { bubble.textContent = shown; captionEl.textContent = shown; scrollTalk(); }
+        if (shown && !holdText()) { bubble.textContent = shown; captionEl.textContent = shown; scrollTalk(); }
       }
     }).then(function (res) {
       var parts = splitMood((res && res.text) || "");
       answer = parts.text.trim();
       if (answer && parts.mood) react(parts.mood);
-      bubble.textContent = answer || "Negavau atsakymo. Paklausk dar kartą.";
-      captionEl.textContent = bubble.textContent;
+      if (answer && holdText()) {
+        bubble.textContent = "…";
+        pending = { bubble: bubble, text: answer };
+        pendingT = setTimeout(reveal, 15000);
+      } else {
+        bubble.textContent = answer || "Negavau atsakymo. Paklausk dar kartą.";
+        captionEl.textContent = bubble.textContent;
+      }
       if (answer) mem.history.push({ role: "assistant", content: answer });
       else mem.history.pop();
       if (mem.history.length > 24) mem.history = mem.history.slice(-24);
