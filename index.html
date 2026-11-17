@@ -1267,7 +1267,7 @@
 
   /* ---------- settings and memory ---------- */
   var settings = { name: "Asistentas", tone: "draugiškai ir šiltai", about: "", voice: "buttery", rate: 1, handsfree: false, theme: "auto", ambient: true, voiceOn: true, narrate: true, user: "", rules: DEFAULT_RULES, phrases: DEFAULT_PHRASES, swears: DEFAULT_SWEARS, persona: DEFAULT_PERSONA, dayMood: true, nudge: "15", chat: true, info: !narrow() };
-  var mem = { notes: [], history: [], summary: "", summaryAt: 0, lastSeen: 0, liked: [], disliked: [], day: null, salt: Math.floor(Math.random() * 1e9) };
+  var mem = { notes: [], history: [], summary: "", summaryAt: 0, lastSeen: 0, liked: [], disliked: [], noteT: {}, day: null, salt: Math.floor(Math.random() * 1e9) };
   var LS = "asist.v2", touched = false;
 
   function takeSettings(d) {
@@ -1308,6 +1308,7 @@
     if (Array.isArray(d.disliked)) mem.disliked = d.disliked.filter(okEx).slice(-4);
     if (d.day && typeof d.day.date === "string" && typeof d.day.k === "string") mem.day = d.day;
     if (typeof d.salt === "number") mem.salt = d.salt;
+    if (d.noteT && typeof d.noteT === "object") mem.noteT = d.noteT;
   }
   try {
     var cached = JSON.parse(localStorage.getItem(LS) || "null");
@@ -1354,12 +1355,12 @@
     mem.notes.forEach(function (note, i) {
       var li = document.createElement("li");
       var span = document.createElement("span");
-      span.textContent = note;
+      span.textContent = note + (mem.noteT[note] ? " · " + whenLabel(mem.noteT[note], false) : "");
       var del = document.createElement("button");
       del.type = "button"; del.className = "small"; del.textContent = "×";
       del.setAttribute("aria-label", "Pamiršti: " + note);
       del.addEventListener("click", function () {
-        mem.notes.splice(i, 1); touched = true;
+        mem.notes.splice(i, 1); touched = true; pruneNoteT();
         renderNotes(); persist("memory");
       });
       li.appendChild(span); li.appendChild(del);
@@ -1850,6 +1851,29 @@
     afterAnswer(preview);
   }
 
+  /* ---------- sense of time ---------- */
+  function hhmm(d) { return ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2); }
+  function dayStart(d) { return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime(); }
+  /* a moment as a person would say it: "šiandien 18:13", "vakar 21:14", "pirmadienį 09:10", "lapkričio 3 d." */
+  function whenLabel(t, withTime) {
+    if (!t) return "";
+    var d = new Date(t), days = Math.round((dayStart(new Date()) - dayStart(d)) / 864e5);
+    var tm = withTime === false ? "" : " " + hhmm(d);
+    if (days <= 0) return "šiandien" + tm;
+    if (days === 1) return "vakar" + tm;
+    if (days === 2) return "užvakar" + tm;
+    /* the names live inside the function: it can be called before the rest of the script has run */
+    if (days < 7) return ["sekmadienį", "pirmadienį", "antradienį", "trečiadienį", "ketvirtadienį", "penktadienį", "šeštadienį"][d.getDay()] + tm;
+    return ["sausio", "vasario", "kovo", "balandžio", "gegužės", "birželio", "liepos", "rugpjūčio", "rugsėjo", "spalio", "lapkričio", "gruodžio"][d.getMonth()] +
+      " " + d.getDate() + " d." + (withTime === false ? "" : tm);
+  }
+  function stampNote(n, t) { mem.noteT[n] = t || Date.now(); }
+  function pruneNoteT() {
+    var keep = {};
+    mem.notes.forEach(function (n) { if (mem.noteT[n]) keep[n] = mem.noteT[n]; });
+    mem.noteT = keep;
+  }
+
   /* ---------- his mood of the day ---------- */
   /* w: weight per weekday, Sunday first; v: how it tilts the voice; vis: how it moves the sphere */
   var DAY_MOODS = [
@@ -2050,6 +2074,9 @@
         "Remkis tuo, ką apie jį žinai. Jei pokalbis liūdnas, rimtas ar žmogus skuba, šito nedaryk.";
       mem.sinceTip = 0;
     } else mem.sinceTip = (mem.sinceTip || 0) + 1;
+    s += "\n\nLaiko pojūtis: žmogaus žinutės pažymėtos, kada jos pasakytos (pvz. [vakar 21:14]). Naudokis tuo: jei kažkas buvo sakyta vakar ar seniau, " +
+      "kalbėk apie tai kaip apie praeitį (\u201evakar sakei, kad…\u201c), nepainiok senų žinučių su dabartimi, pastebėk, jei jis rašo vėlai naktį ar po ilgos pertraukos. " +
+      "Savo atsakymuose laiko žymų laužtiniuose skliaustuose nerašyk. Faktai atmintyje turi įsiminimo datą: senesni gali būti pasenę, todėl prieš remdamasis pasenusiu planu gali pasitikslinti.";
     if (mem.lastSeen) {
       var gap = Date.now() - mem.lastSeen, gh = gap / 36e5;
       if (gh > 3) s += "\n\nPaskutinį kartą kalbėjotės prieš " + (gh < 24 ? Math.round(gh) + " val." : Math.round(gh / 24) + " d.") +
@@ -2063,10 +2090,13 @@
     }
     if (mem.summary) s += "\n\nTavo ilgalaikė santrauka apie žmogų ir jūsų pokalbius (naudokis ja natūraliai, necituok jos):\n" + mem.summary;
     var plainNotes = mem.notes.filter(function (n) { return n.indexOf("[pamoka]") !== 0; });
-    if (plainNotes.length) s += "\n\nKą esi įsiminęs iš ankstesnių pokalbių:\n- " + plainNotes.join("\n- ");
+    if (plainNotes.length) s += "\n\nKą esi įsiminęs iš ankstesnių pokalbių (skliaustuose, kada įsiminta):\n- " + plainNotes.map(function (n) {
+      return mem.noteT[n] ? n + " (" + whenLabel(mem.noteT[n], false) + ")" : n;
+    }).join("\n- ");
     s += "\n\nJei žmogus paprašo ką nors įsiminti arba pasako ilgalaikį faktą apie save (vardą, pomėgį, planą, žmogų, projektą), " +
       "arba pasako, kaip jam patinka gauti atsakymus, iškviesk įrankį remember su vienu trumpu faktu ir tada atsakyk įprastai. " +
-      "Įsimink ir neužbaigtus reikalus (kind=open), pvz. „rytoj turi skambinti dėl inverterio“, ir žmonių bei projektų detales. " +
+      "Įsimink ir neužbaigtus reikalus (kind=open) su tikra data vietoj „rytoj“ ar „penktadienį“, pvz. „lapkričio 18 d. turi skambinti dėl inverterio“, ir žmonių bei projektų detales. " +
+      "Jei neužbaigto reikalo data jau praėjo, kai tinka, pasiteirauk, kaip sekėsi, o kai jis atsako, kad padaryta, pašalink tą reikalą įrankiu forget. " +
       "Pasenusį ar klaidingą faktą pašalink įrankiu forget. Nekartok jau įsimintų faktų.";
     return s;
   }
@@ -2079,6 +2109,7 @@
       var after = text.slice(open), tagAt = after.search(/\[(joy|calm|serious|wow|care)\]/i);
       text = text.slice(0, open) + (tagAt !== -1 ? after.slice(tagAt) : "");
     }
+    text = text.replace(/^\s*\[(?:šiandien|vakar|užvakar|[a-ząčęėįšųūž]+dienį|[a-ząčęėįšųū]+ \d{1,2} d\.)[^\]]{0,12}\]\s*/i, "");
     var m = /^\s*\[(joy|calm|serious|wow|care)\]\s*/i.exec(text || "");
     if (m) return { mood: m[1].toLowerCase(), text: text.slice(m[0].length) };
     return { mood: null, text: /^\s*\[[a-z]*\]?\s*$/i.test(text || "") ? "" : (text || "") };
@@ -2092,11 +2123,14 @@
     if (mem.history.length <= 34 && !weekly) return;
     var take = mem.history.length > 34 ? 14 : Math.min(8, mem.history.length - 2);
     var chunk = mem.history.slice(0, take);
-    var talkText = chunk.map(function (m) { return (m.role === "user" ? "Žmogus: " : "Asistentas: ") + m.content; }).join("\n");
+    var talkText = chunk.map(function (m) {
+      return (m.t ? "[" + new Date(m.t).toLocaleDateString("lt-LT") + " " + hhmm(new Date(m.t)) + "] " : "") + (m.role === "user" ? "Žmogus: " : "Asistentas: ") + m.content;
+    }).join("\n");
     var prompt =
       "Tu tvarkai asmeninio balso asistento ilgalaikę atmintį. Žemiau yra esama santrauka ir naujas pokalbio fragmentas. " +
       "Parašyk atnaujintą santrauką lietuviškai: kas šis žmogus, jo darbai ir projektai, planai, pomėgiai, kaip jam patinka bendrauti, " +
       "jūsų vidiniai juokeliai, svarbūs neužbaigti dalykai, žmonės jo gyvenime, kas jį vargina ar džiugina, kokiu paros metu ir kokia nuotaika jis dažniausiai kalba, taip pat asistento paties susiformavusios nuomonės, pravardės ir pasiūlymai, kuriuos žmogus priėmė ar atmetė. Sujunk su esama santrauka, pašalink pasikartojimus ir pasenusius dalykus, " +
+      "Įvykiams, planams ir sprendimams nurodyk datą (pvz. „lapkričio 17 d. nusprendė…“), kad būtų aiški chronologija; santykinių laikų („vakar“, „rytoj“) nerašyk. " +
       "rašyk trumpais punktais su brūkšneliu, iš viso iki 1500 simbolių. Neįtrauk slaptažodžių, raktų, banko ar asmens kodų duomenų. " +
       "Grąžink tik santrauką, be įžangos.\n\nESAMA SANTRAUKA:\n" + (mem.summary || "(dar nėra)") +
       "\n\nNAUJAS FRAGMENTAS:\n" + talkText;
@@ -2130,7 +2164,7 @@
     name: "remember",
     description: "Įsimena vieną trumpą ilgalaikį faktą apie žmogų, kad jis būtų žinomas kituose pokalbiuose.",
     inputSchema: { type: "object", properties: {
-      fact: { type: "string", description: "Faktas vienu sakiniu" },
+      fact: { type: "string", description: "Faktas vienu sakiniu. Santykinius laikus (rytoj, kitą savaitę, penktadienį) paversk tikra data, pvz. „lapkričio 18 d.“" },
       kind: { type: "string", enum: ["fact", "preference", "person", "project", "open", "self", "lesson"], description: "Rūšis: open = neužbaigtas reikalas, kurio paskui paklausti; self = tavo paties nuomonė, pravardė ar vidinis juokelis; lesson = ko išmokai apie tai, kaip jam su tavimi patinka kalbėtis" }
     }, required: ["fact"] },
     execute: function (inp) {
@@ -2141,6 +2175,8 @@
       if (mem.notes.indexOf(fact) === -1) {
         if (mem.notes.length >= 40) mem.notes.shift();
         mem.notes.push(fact);
+        stampNote(fact);
+        pruneNoteT();
         renderNotes();
       }
       return { saved: true };
@@ -2158,6 +2194,7 @@
       if (hits.length > 2) return { removed: 0, error: "Tinka per daug faktų, patikslink žodžius", candidates: hits.slice(0, 6) };
       var n = mem.notes.length;
       mem.notes = mem.notes.filter(function (x) { return x.toLowerCase().indexOf(q) === -1; });
+      pruneNoteT();
       renderNotes();
       return { removed: n - mem.notes.length };
     }
@@ -2219,6 +2256,8 @@
         .filter(function (l) { return l.length > 8 && l.length < 260; }).slice(0, 8);
       if (!lines.length) return;
       mem.notes = mem.notes.filter(function (n) { return n.indexOf("[pamoka]") !== 0; }).concat(lines.map(function (l) { return "[pamoka] " + l; }));
+      mem.notes.forEach(function (n) { if (n.indexOf("[pamoka]") === 0 && !mem.noteT[n]) stampNote(n); });
+      pruneNoteT();
       renderNotes(); persist("memory");
     }).catch(function () {
       if (!why) return;
@@ -2253,7 +2292,7 @@
       (nudgeMisses ? " Tai jau " + (nudgeMisses + 1) + "-as kartas, kai tu prakalbini, o jis neatsako: būk trumpesnis, gali juokais apsimesti įsižeidusiu ar pasakyti, kad netrukdysi." : "") +
       " Pradėk nuotaikos žyma, kaip visada.";
     var sysMode = !!window.__klaudijusShim;
-    var messages = recent.map(function (m, i) { return { role: m.role, content: (i === 0 && !sysMode ? lead + "\n\n" : "") + m.content }; });
+    var messages = recent.map(function (m, i) { return { role: m.role, content: (i === 0 && !sysMode ? lead + "\n\n" : "") + timed(m) }; });
     if (messages.length && messages[messages.length - 1].role === "user") messages[messages.length - 1].content += "\n\n" + sys;
     else messages.push({ role: "user", content: (messages.length || sysMode ? "" : lead + "\n\n") + sys });
     setState("thinking");
@@ -2265,8 +2304,8 @@
       var bubble = addMsg("bot", holdText() ? "…" : text);
       if (holdText()) { pending = { bubble: bubble, text: text }; pendingT = setTimeout(reveal, 15000); }
       attachFeedback(bubble, "(tylėjau " + mins + " min.)", text);
-      mem.history.push({ role: "user", content: "(tylėjau " + mins + " min.)" });
-      mem.history.push({ role: "assistant", content: text });
+      mem.history.push({ role: "user", content: "(tylėjau " + mins + " min.)", t: Date.now() });
+      mem.history.push({ role: "assistant", content: text, t: Date.now() });
       if (mem.day && dayMood()) mem.day.told = true;
       persist("memory");
       busy = false; nudgeMisses++; lastActivity = Date.now();
@@ -2276,6 +2315,9 @@
   setInterval(checkNudge, 20000);
   /* coming back to the window counts as being here: no "are you alive?" the moment you return */
   document.addEventListener("visibilitychange", function () { if (document.visibilityState === "visible") lastActivity = Date.now(); });
+
+  /* his words carry the moment they were said; your own answers stay clean so you do not start writing timestamps */
+  function timed(m) { return m.role === "user" && m.t ? "[" + whenLabel(m.t) + "] " + m.content : m.content; }
 
   var queuedQ = null;
   function ask(question, alts) {
@@ -2300,7 +2342,7 @@
     stopSpeaking();
     setState("thinking");
 
-    mem.history.push({ role: "user", content: question });
+    mem.history.push({ role: "user", content: question, t: Date.now() });
     var recent = mem.history.slice(-24);
     while (recent.length && recent[0].role !== "user") recent.shift();
     chooseOpener(question);
@@ -2308,7 +2350,8 @@
     mem.lastSeen = Date.now();
     var asSystem = !!window.__klaudijusShim;
     var messages = recent.map(function (m, i) {
-      return i === 0 && !asSystem ? { role: m.role, content: lead + "\n\n" + m.content } : { role: m.role, content: m.content };
+      var c = timed(m);
+      return i === 0 && !asSystem ? { role: m.role, content: lead + "\n\n" + c } : { role: m.role, content: c };
     });
     if (alts && alts.length) {
       var lastM = messages[messages.length - 1];
@@ -2344,7 +2387,7 @@
         bubble.textContent = shownAnswer || "Negavau atsakymo. Paklausk dar kartą.";
         captionEl.textContent = bubble.textContent;
       }
-      if (answer) mem.history.push({ role: "assistant", content: shownAnswer });
+      if (answer) mem.history.push({ role: "assistant", content: shownAnswer, t: Date.now() });
       else mem.history.pop();
       persist("memory");
       maybeSummarize();
