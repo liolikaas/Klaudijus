@@ -464,6 +464,7 @@
         <option value="60">Po valandos tylos</option>
       </select>
 
+      <label class="check"><input type="checkbox" id="setGrid"> <span>Erdvėlaikio tinklelis: rodyti, kaip sferos masė išlenkia erdvę</span></label>
       <label class="check"><input type="checkbox" id="setAmbient"> <span>Namų ekranas: po minutės ramybės rodau laikrodį</span></label>
 
       <label class="check" id="handsRow"><input type="checkbox" id="setHands"> <span>Rankų laisvė: po atsakymo vėl klausausi, o padiktuotą tekstą išsiunčiu pats po pauzės</span></label>
@@ -1275,7 +1276,7 @@
   }
 
   /* ---------- settings and memory ---------- */
-  var settings = { name: "Asistentas", tone: "draugiškai ir šiltai", about: "", voice: "buttery", rate: 1, handsfree: false, theme: "auto", ambient: true, voiceOn: true, narrate: true, user: "", rules: DEFAULT_RULES, phrases: DEFAULT_PHRASES, swears: DEFAULT_SWEARS, persona: DEFAULT_PERSONA, dayMood: true, nudge: "15", chat: true, info: !narrow() };
+  var settings = { name: "Asistentas", tone: "draugiškai ir šiltai", about: "", voice: "buttery", rate: 1, handsfree: false, theme: "auto", ambient: true, voiceOn: true, narrate: true, user: "", rules: DEFAULT_RULES, phrases: DEFAULT_PHRASES, swears: DEFAULT_SWEARS, persona: DEFAULT_PERSONA, dayMood: true, nudge: "15", grid: true, chat: true, info: !narrow() };
   var mem = { notes: [], history: [], summary: "", summaryAt: 0, lastSeen: 0, liked: [], disliked: [], noteT: {}, recentOpen: [], self: "", them: "", sinceReflect: 0, reflectAt: 0, day: null, salt: Math.floor(Math.random() * 1e9) };
   var LS = "asist.v2", touched = false;
 
@@ -1289,6 +1290,7 @@
     settings.handsfree = !!d.handsfree;
     if (typeof d.theme === "string" && setTheme.querySelector('option[value="' + d.theme + '"]')) settings.theme = d.theme;
     if (typeof d.ambient === "boolean") settings.ambient = d.ambient;
+    if (typeof d.grid === "boolean") settings.grid = d.grid;
     if (typeof d.voiceOn === "boolean") settings.voiceOn = d.voiceOn;
     if (typeof d.narrate === "boolean") settings.narrate = d.narrate;
     if (typeof d.chat === "boolean") settings.chat = d.chat;
@@ -1443,6 +1445,7 @@
     rateIn.value = String(settings.rate);
     setTheme.value = settings.theme;
     setAmbient.checked = settings.ambient;
+    $("setGrid").checked = settings.grid !== false;
     $("setVoiceOn").checked = settings.voiceOn;
     $("setNarrate").checked = settings.narrate;
     $("voiceCard").classList.toggle("off", !settings.voiceOn);
@@ -1503,6 +1506,7 @@
     if (talk.querySelector(".greet")) renderTalk(); persist("settings");
   });
   setRules.addEventListener("change", function () { settings.rules = setRules.value.trim(); persist("settings"); });
+  $("setGrid").addEventListener("change", function () { settings.grid = $("setGrid").checked; persist("settings"); });
   $("setDayMood").addEventListener("change", function () { settings.dayMood = $("setDayMood").checked; persist("settings"); renderDayMood(); });
   $("setNudge").addEventListener("change", function () { settings.nudge = $("setNudge").value; persist("settings"); });
   $("setSwears").addEventListener("change", function () { settings.swears = $("setSwears").value.trim(); persist("settings"); });
@@ -2738,11 +2742,127 @@
   }
   var LIx = -0.45, LIy = -0.55, LIz = 0.7, LIl = Math.sqrt(LIx * LIx + LIy * LIy + LIz * LIz); LIx /= LIl; LIy /= LIl; LIz /= LIl;
 
-  /* orbiting dust disk */
+  /* perspective: how far the eye is from the sphere, in sphere radii */
+  var PERS = 3.4;
+  var PS = new Float32Array(N), PL = new Float32Array(N), PSP = new Float32Array(N);
+
+  /* parallax: tilting the phone (or moving the mouse) turns the scene a little, layers shift by depth */
+  var par = { x: 0, y: 0, tx: 0, ty: 0, b0: null, g0: null };
+  window.addEventListener("deviceorientation", function (e) {
+    if (e.beta == null || e.gamma == null) return;
+    if (par.b0 === null) { par.b0 = e.beta; par.g0 = e.gamma; }
+    /* the neutral pose follows slowly, so only the change of tilt counts */
+    par.b0 += (e.beta - par.b0) * 0.01; par.g0 += (e.gamma - par.g0) * 0.01;
+    par.tx = Math.max(-1, Math.min(1, (e.gamma - par.g0) / 20));
+    par.ty = Math.max(-1, Math.min(1, (e.beta - par.b0) / 20));
+  });
+  window.addEventListener("pointermove", function (e) {
+    if (e.pointerType !== "mouse") return;
+    par.tx = (e.clientX / window.innerWidth - 0.5) * 1.6;
+    par.ty = (e.clientY / window.innerHeight - 0.5) * 1.6;
+  });
+  /* iPhone asks permission for tilt; the first tap asks once */
+  window.addEventListener("pointerdown", function askTilt() {
+    window.removeEventListener("pointerdown", askTilt);
+    try { if (window.DeviceOrientationEvent && DeviceOrientationEvent.requestPermission) DeviceOrientationEvent.requestPermission().catch(function () {}); } catch (e) {}
+  });
+
+  /* the ring: two bands with a dark gap between them, like Saturn's */
   var dust = [];
-  for (var i = 0; i < 620; i++) {
-    var rr = 1.3 + Math.pow(Math.random(), 1.6) * 1.1;
-    dust.push({ r: rr, a: Math.random() * 6.283, v: 0.5 / Math.pow(rr, 1.5), h: (Math.random() - 0.5) * 0.08, s: Math.random() });
+  for (var i = 0; i < 1250; i++) {
+    var rr = Math.random() < 0.55 ? 1.36 + Math.random() * 0.36 : 1.8 + Math.pow(Math.random(), 1.3) * 0.45;
+    dust.push({ r: rr, a: Math.random() * 6.283, v: 0.5 / Math.pow(rr, 1.5), h: (Math.random() - 0.5) * 0.025, s: Math.random() });
+  }
+
+  /* bodies that fly past: gravity bends their path, time near the sphere runs slower (they slow down)
+     and their light is shifted to red as it climbs out of the gravity well */
+  var bodies = [], nextBody = 4000;
+  function spawnBody(cx, cy, R) {
+    var ang = Math.random() * 6.283, dist = Math.max(W, H) * 0.6;
+    var sx = cx + Math.cos(ang) * dist, sy = cy + Math.sin(ang) * dist;
+    var dx = cx - sx, dy = cy - sy, dl = Math.sqrt(dx * dx + dy * dy); dx /= dl; dy /= dl;
+    var b = R * (1.2 + Math.random() * 1.3) * (Math.random() < 0.5 ? -1 : 1);
+    var tx = cx - dy * b, ty = cy + dx * b, vx = tx - sx, vy = ty - sy, vl = Math.sqrt(vx * vx + vy * vy);
+    var sp = R * (1.7 + Math.random() * 0.9);
+    bodies.push({ x: sx, y: sy, vx: vx / vl * sp, vy: vy / vl * sp, front: Math.random() < 0.6, trail: [], c: Math.random(), age: 0, f: 1 });
+  }
+  function updateBodies(cx, cy, R, dt) {
+    var G = R * R * R * 2.6 * (1 + level * 0.8), rs = R * 0.95;
+    for (var i = bodies.length - 1; i >= 0; i--) {
+      var b = bodies[i];
+      b.age += dt;
+      for (var k = 0; k < 3; k++) {
+        var h = dt / 3, dx = cx - b.x, dy = cy - b.y, r = Math.sqrt(dx * dx + dy * dy) || 1;
+        var f = Math.sqrt(Math.max(0.06, 1 - rs / Math.max(r, rs)));
+        var a = G / (r * r);
+        b.vx += dx / r * a * h * f; b.vy += dy / r * a * h * f;
+        b.x += b.vx * h * f; b.y += b.vy * h * f; b.f = f; b.r = r;
+      }
+      b.trail.push(b.x, b.y, b.f);
+      if (b.trail.length > 150) b.trail.splice(0, 3);
+      if (b.front && b.r < R * 0.97) { firePulse(0.7); bodies.splice(i, 1); continue; }
+      if (b.age > 45 || (b.age > 4 && b.r > Math.max(W, H) * 0.9)) bodies.splice(i, 1);
+    }
+  }
+  var RED = [255, 70, 40];
+  function drawBodies(front, cx, cy, R) {
+    ctx.lineCap = "round";
+    for (var i = 0; i < bodies.length; i++) {
+      var b = bodies[i];
+      if (b.front !== front) continue;
+      var base = b.c > 0.66 ? TEAL : b.c > 0.33 ? ICE : [255, 240, 220], tr = b.trail, n = tr.length / 3;
+      for (var k = 1; k < n; k++) {
+        var x0 = tr[(k - 1) * 3], y0 = tr[(k - 1) * 3 + 1], x1 = tr[k * 3], y1 = tr[k * 3 + 1], f = tr[k * 3 + 2];
+        if (!front && Math.sqrt((x1 - cx) * (x1 - cx) + (y1 - cy) * (y1 - cy)) < R * 1.02) continue;
+        ctx.strokeStyle = rgba(blend(base, RED, (1 - f) * 0.9), (k / n) * 0.7);
+        ctx.lineWidth = 0.6 + (k / n) * 2.2;
+        ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+      }
+      if (!front && b.r < R * 1.02) continue;
+      var hc = blend(base, RED, (1 - b.f) * 0.9), hr = 3.5 + 3 * b.f;
+      var hg = ctx.createRadialGradient(b.x, b.y, 0, b.x, b.y, hr * 2.6);
+      hg.addColorStop(0, "rgba(255,255,255,0.95)"); hg.addColorStop(0.3, rgba(hc, 0.75)); hg.addColorStop(1, rgba(hc, 0));
+      ctx.fillStyle = hg; ctx.beginPath(); ctx.arc(b.x, b.y, hr * 2.6, 0, 6.283); ctx.fill();
+    }
+  }
+
+  /* space-time: a sheet that sags under the sphere's mass (deeper while he speaks or thinks) */
+  function drawSpacetime(cx, cy, R, t) {
+    var pitch = 0.42 + par.y * 0.12, cp = Math.cos(pitch), sp = Math.sin(pitch), P = 4.6;
+    var depthK = 1.1 * (1 + level * 0.7 + (state === "thinking" ? 0.3 : 0));
+    var col = blend(blend(ICE, TEAL, 0.4), [255, 255, 255], 0.25);
+    function pt(u, v) {
+      var r2 = u * u + v * v, Y = 0.35 + depthK / Math.sqrt(r2 + 0.55) + 0.04 * Math.sin(Math.sqrt(r2) * 2.2 - t * 1.4) * level;
+      var yy = Y * cp - v * sp, z = Y * sp + v * cp, sc = P / (P + z);
+      if (P + z < 0.6) return null;
+      return [cx + (u - par.x * 0.5) * R * sc, cy + yy * R * sc, Math.sqrt(r2), z];
+    }
+    /* segments are grouped by brightness, so the whole sheet takes a handful of strokes */
+    var buckets = [[], [], [], [], [], []];
+    for (var dir = 0; dir < 2; dir++) {
+      for (var L = -9; L <= 9; L++) {
+        var fixed = L * 0.75, prev = null;
+        for (var k = 0; k <= 48; k++) {
+          var w = -9 * 0.75 + k * (18 * 0.75 / 48);
+          var q = dir ? pt(fixed, w) : pt(w, fixed);
+          if (q && prev) {
+            var near = Math.max(0, 1 - q[2] / 7), a = (0.035 + 0.26 * Math.pow(near, 1.5)) * Math.max(0, Math.min(1, 1 - q[3] / 7));
+            var bi = Math.min(5, Math.floor(a / 0.05));
+            if (a > 0.006) buckets[bi].push(prev[0], prev[1], q[0], q[1]);
+          }
+          prev = q;
+        }
+      }
+    }
+    ctx.lineWidth = 0.8;
+    for (var bi = 0; bi < 6; bi++) {
+      var seg = buckets[bi];
+      if (!seg.length) continue;
+      ctx.strokeStyle = rgba(col, (bi + 0.5) * 0.05);
+      ctx.beginPath();
+      for (var j = 0; j < seg.length; j += 4) { ctx.moveTo(seg[j], seg[j + 1]); ctx.lineTo(seg[j + 2], seg[j + 3]); }
+      ctx.stroke();
+    }
   }
 
   var meteors = [], nextMeteor = 2500;
@@ -2884,20 +3004,23 @@
   };
 
   function drawDust(front, cx, cy, R, t, tint) {
-    var tiltC = Math.cos(-0.32), tiltS = Math.sin(-0.32);
+    var roll = -0.32 + par.x * 0.08, tiltC = Math.cos(roll), tiltS = Math.sin(roll);
+    var incl = Math.max(0.12, Math.min(0.42, 0.26 + par.y * 0.12)), cInc = Math.sqrt(1 - incl * incl);
     for (var i = 0; i < dust.length; i++) {
       var d = dust[i];
       var sinA = Math.sin(d.a);
       if ((sinA > 0) !== front) continue;
       var rr = d.r * (1 - pull * 0.18);
-      var x = Math.cos(d.a) * rr;
-      var yy = sinA * rr * 0.26 + (d.h + level * 0.12 * Math.sin(d.a * 3 + t * 4 + d.s * 6)) ;
-      var px = cx + (x * tiltC - yy * tiltS) * R;
-      var py = cy + (x * tiltS + yy * tiltC) * R;
+      var x = Math.cos(d.a) * rr, z = sinA * rr * cInc, sc = PERS / (PERS - z);
+      var yy = sinA * rr * incl + (d.h + level * 0.12 * Math.sin(d.a * 3 + t * 4 + d.s * 6)) ;
+      var px = cx + (x * tiltC - yy * tiltS) * R * sc;
+      var py = cy + (x * tiltS + yy * tiltC) * R * sc;
+      /* the part behind the sphere is hidden by it */
+      if (!front && (px - cx) * (px - cx) + (py - cy) * (py - cy) < R * R * 0.98) continue;
       var near = (sinA + 1) / 2;
-      var a = (0.18 + near * 0.55) * (0.6 + 0.4 * Math.sin(t * 2 + d.s * 40));
+      var a = (0.2 + near * 0.6) * (0.6 + 0.4 * Math.sin(t * 2 + d.s * 40));
       var col = blend(d.s > 0.7 ? VIOLET : d.s > 0.4 ? TEAL : ICE, tint, warmth * 0.7);
-      var sz = (0.7 + near * 1.3) * (d.s > 0.94 ? 1.9 : 1);
+      var sz = (0.45 + near * 0.65) * (d.s > 0.97 ? 1.6 : 1) * sc;
       ctx.fillStyle = rgba(col, Math.max(0, a));
       ctx.fillRect(px - sz / 2, py - sz / 2, sz, sz);
     }
@@ -2959,6 +3082,7 @@
     var speed = calm ? 0.05 : (state === "thinking" ? 1.6 : state === "speaking" ? 0.45 : 0.18);
     if (!calm) speed *= (feel === "serious" || feel === "care" ? 0.45 : feel === "joy" ? 1.8 : 1) * dayVis.speed;
     spin += dt * speed;
+    if (!calm) { var pk = Math.min(1, dt * 4); par.x += (par.tx - par.x) * pk; par.y += (par.ty - par.y) * pk; }
     var orbit = calm ? 0.1 : (state === "thinking" ? 3.2 : 1 + level * 1.5);
     for (var i = 0; i < dust.length; i++) dust[i].a = (dust[i].a + dust[i].v * orbit * dt) % 6.283;
 
@@ -2975,11 +3099,14 @@
     LX = cx; LY = cy; LE = R * (1.85 + level * 0.15);
     for (var i = 0; i < stars.length; i++) {
       var s = stars[i];
-      var sx = ((s.x + t * 0.004 * s.d) % 1) * W, sy = s.y * H;
-      var tw = calm ? 0.6 : 0.45 + 0.55 * Math.sin(t * (0.8 + s.d * 2) + s.ph);
-      var col = s.d > 0.85 ? EMBER : ICE;
+      var sx = ((s.x + t * 0.006 * s.d) % 1) * W - par.x * s.d * 28, sy = s.y * H - par.y * s.d * 22;
       var ss = 0.6 + s.d * 1.1;
       var L = lens(sx, sy);
+      /* near the sphere time runs slower: the star twinkles slower and its light turns red */
+      var lb = Math.sqrt((L.x - cx) * (L.x - cx) + (L.y - cy) * (L.y - cy)), fT = Math.sqrt(Math.max(0.12, 1 - R * 1.2 / Math.max(lb, R * 1.2)));
+      s.p = (s.p || s.ph) + dt * (0.8 + s.d * 2) * fT;
+      var tw = calm ? 0.6 : 0.45 + 0.55 * Math.sin(s.p);
+      var col = blend(s.d > 0.85 ? EMBER : ICE, RED, (1 - fT) * 0.6);
       var a1 = Math.min(1, (0.12 + 0.5 * s.d * tw) * Math.min(3, Math.pow(L.st, 0.7)));
       ctx.fillStyle = rgba(col, a1);
       if (L.st < 1.25) {
@@ -3003,15 +3130,17 @@
       }
     }
 
+    if (settings.grid !== false) drawSpacetime(cx, cy, R, t);
+
     /* nebula clouds, bent by the lens */
     ctx.globalCompositeOperation = "lighter";
     for (var i = 0; i < nebulae.length; i++) {
       var nb = nebulae[i];
-      var nx0 = ((nb.x + t * nb.sp) % 1.4) * W - 0.2 * W;
+      var nx0 = ((nb.x + t * nb.sp) % 1.4) * W - 0.2 * W - par.x * 16;
       var ncol = nb.c === 0 ? VIOLET : nb.c === 1 ? TEAL : ICE;
       for (var k = 0; k < nb.puffs.length; k++) {
         var pf = nb.puffs[k];
-        var L = lens(nx0 + pf.dx * W * 1.6, nb.y * H + pf.dy * H);
+        var L = lens(nx0 + pf.dx * W * 1.6, nb.y * H + pf.dy * H - par.y * 12);
         var pcol = blend(ncol, pf.shift > 0.7 ? EMBER : VIOLET, pf.shift * 0.35 + warmth * 0.3);
         var stretch = Math.min(5, L.st), sz = pf.size * (W < 500 ? 0.8 : 1.2);
         ctx.globalAlpha = Math.min(0.9, pf.a * 0.38 * Math.min(2.2, Math.sqrt(stretch)));
@@ -3034,7 +3163,7 @@
     /* distant galaxies, bent into arcs when they pass behind */
     for (var i = 0; i < galaxies.length; i++) {
       var g = galaxies[i];
-      var gx = ((g.x + t * 0.0025) % 1) * W, gy = g.y * H, cr = Math.cos(g.rot), sr = Math.sin(g.rot);
+      var gx = ((g.x + t * 0.0025) % 1) * W - par.x * 10, gy = g.y * H - par.y * 8, cr = Math.cos(g.rot), sr = Math.sin(g.rot);
       var gc = g.c === 0 ? VIOLET : g.c === 1 ? TEAL : EMBER;
       for (var k = 0; k < g.pts.length; k++) {
         var q = g.pts[k], px0 = gx + (q[0] * cr - q[1] * sr) * g.len, py0 = gy + (q[0] * sr + q[1] * cr) * g.len;
@@ -3093,6 +3222,11 @@
       }
     }
 
+    if (!calm) {
+      if (now > nextBody) { nextBody = now + 5000 + Math.random() * 7000; if (bodies.length < 3) spawnBody(cx, cy, R); }
+      updateBodies(cx, cy, R, dt);
+    }
+    drawBodies(false, cx, cy, R);
     drawJets(false, cx, cy, R, t, dt);
     drawDust(false, cx, cy, R, t, tint);
 
@@ -3167,31 +3301,14 @@
       }
     }
 
-    /* inner shell */
-    var ics = Math.cos(-spin * 1.6), isn = Math.sin(-spin * 1.6), itl = -0.5, ict = Math.cos(itl), ist = Math.sin(itl);
-    for (var i = 0; i < M; i++) {
-      var p = inner[i];
-      var r0 = 0.56 + level * 0.18 * Math.sin(p.y * 8 + t * 4);
-      var x = p.x * ics - p.z * isn, z = p.x * isn + p.z * ics, y = p.y;
-      var y2 = y * ict - z * ist, z2 = y * ist + z * ict, depth = (z2 + 1) / 2;
-      ctx.fillStyle = rgba(blend(p.s > 0.5 ? VIOLET : ICE, EMBER, warmth * 0.8), 0.08 + depth * 0.32);
-      var sz = 0.5 + depth * 0.9;
-      ctx.fillRect(cx + x * r0 * R - sz / 2, cy + y2 * r0 * R - sz / 2, sz, sz);
-    }
-
     /* update pulses */
     for (var k = pulses.length - 1; k >= 0; k--) { pulses[k].ph += dt * (calm ? 0.5 : 1.25); if (pulses[k].ph > 1.25) pulses.splice(k, 1); }
     coreFlash = Math.max(0, coreFlash - dt * 1.8);
-    if (coreFlash > 0.01) {
-      var cfR = R * (0.45 + coreFlash * 0.35), cf = ctx.createRadialGradient(cx, cy, 0, cx, cy, cfR);
-      cf.addColorStop(0, "rgba(255,255,255," + (coreFlash * 0.55).toFixed(3) + ")");
-      cf.addColorStop(1, rgba(coreCol, 0));
-      ctx.fillStyle = cf; ctx.beginPath(); ctx.arc(cx, cy, cfR, 0, 6.283); ctx.fill();
-    }
 
-    /* sphere: lit from the upper left, with pulse waves running over it */
-    var cs = Math.cos(spin), sn = Math.sin(spin);
-    var tilt = 0.35, ct = Math.cos(tilt), st = Math.sin(tilt);
+    /* sphere: real perspective, lit from the upper left, a moving glint, pulse waves over it */
+    var yaw = spin + par.x * 0.35, cs = Math.cos(yaw), sn = Math.sin(yaw);
+    var tilt = 0.35 + par.y * 0.25, ct = Math.cos(tilt), st = Math.sin(tilt);
+    var Hx = LIx, Hy = LIy, Hz = LIz + 1, Hl = Math.sqrt(Hx * Hx + Hy * Hy + Hz * Hz); Hx /= Hl; Hy /= Hl; Hz /= Hl;
     for (var i = 0; i < N; i++) {
       var p = pts[i];
       var wave = Math.sin(p.y * 6 + t * 3 + p.s * 6.28) * 0.5 + Math.sin(p.x * 5 - t * 2.2) * 0.5;
@@ -3205,18 +3322,68 @@
         boost += Math.exp(-dd * dd * 22) * pu.str * (1.25 - pu.ph);
       }
       r += boost * 0.11;
+      var sc = PERS / (PERS - z2 * r);
       var depth = (z2 + 1) / 2;
       var lit = (x * LIx + y2 * LIy + z2 * LIz) * 0.5 + 0.5;
-      var shade = 0.32 + 0.68 * lit * lit;
-      var px = cx + x * r * R, py = cy + y2 * r * R;
-      PX[i] = px; PY[i] = py; PD[i] = depth; PB[i] = boost;
-      var size = (0.5 + depth * 1.3) * (1 + level * 0.6) * (1 + boost * 0.9);
-      var base = p.s > 0.8 ? VIOLET : p.s > 0.55 ? TEAL : ICE;
+      var hd = x * Hx + y2 * Hy + z2 * Hz;
+      PX[i] = cx + x * r * R * sc; PY[i] = cy + y2 * r * R * sc; PD[i] = depth; PB[i] = boost;
+      PS[i] = (0.45 + depth * 0.95) * (1 + level * 0.6) * (1 + boost * 0.9) * Math.pow(sc, 0.7);
+      PL[i] = 0.12 + 0.88 * Math.pow(lit, 1.6);
+      PSP[i] = hd > 0 ? Math.pow(hd, 28) : 0;
+    }
+    /* far half: soft and out of focus */
+    var wq = Math.round(warmth * 8) / 8;
+    for (var i = 0; i < N; i++) {
+      if (PD[i] >= 0.5) continue;
+      var p = pts[i], base = p.s > 0.8 ? VIOLET : p.s > 0.55 ? TEAL : ICE;
+      var mq = Math.round((0.35 + 0.65 * p.s) * 4) / 4;
+      var colq = blend(base, EMBER, wq * mq);
+      var sz = PS[i] * 2.6;
+      ctx.globalAlpha = Math.min(1, (0.1 + PD[i] * 0.7) * PL[i] * 1.5 + PB[i] * 0.5);
+      ctx.drawImage(tintPuff(colq), PX[i] - sz, PY[i] - sz, sz * 2, sz * 2);
+    }
+    ctx.globalAlpha = 1;
+
+    /* the body: dark glass, thinner on the lit side, so the far half shows through dimly */
+    ctx.globalCompositeOperation = "source-over";
+    var bR = R * (1 - pull * 0.1 + level * 0.12) * PERS / Math.sqrt(PERS * PERS - 1);
+    var bodyG = ctx.createRadialGradient(cx + LIx * R * 0.38, cy + LIy * R * 0.38, R * 0.05, cx, cy, bR);
+    bodyG.addColorStop(0, "rgba(4,6,18,0)");
+    bodyG.addColorStop(0.5, "rgba(4,6,18,0.2)");
+    bodyG.addColorStop(0.82, "rgba(4,6,18,0.46)");
+    bodyG.addColorStop(1, "rgba(4,6,18,0.6)");
+    ctx.fillStyle = bodyG; ctx.beginPath(); ctx.arc(cx, cy, bR, 0, 6.283); ctx.fill();
+    ctx.globalCompositeOperation = "lighter";
+
+    /* inner shell */
+    var ics = Math.cos(-spin * 1.6 + par.x * 0.2), isn = Math.sin(-spin * 1.6 + par.x * 0.2), itl = -0.5 + par.y * 0.15, ict = Math.cos(itl), ist = Math.sin(itl);
+    for (var i = 0; i < M; i++) {
+      var p = inner[i];
+      var r0 = 0.56 + level * 0.18 * Math.sin(p.y * 8 + t * 4);
+      var x = p.x * ics - p.z * isn, z = p.x * isn + p.z * ics, y = p.y;
+      var y2 = y * ict - z * ist, z2 = y * ist + z * ict, depth = (z2 + 1) / 2, isc = PERS / (PERS - z2 * r0);
+      ctx.fillStyle = rgba(blend(p.s > 0.5 ? VIOLET : ICE, EMBER, warmth * 0.8), 0.08 + depth * 0.32);
+      var sz = (0.5 + depth * 0.9) * isc;
+      ctx.fillRect(cx + x * r0 * R * isc - sz / 2, cy + y2 * r0 * R * isc - sz / 2, sz, sz);
+    }
+
+    if (coreFlash > 0.01) {
+      var cfR = R * (0.45 + coreFlash * 0.35), cf = ctx.createRadialGradient(cx, cy, 0, cx, cy, cfR);
+      cf.addColorStop(0, "rgba(255,255,255," + (coreFlash * 0.55).toFixed(3) + ")");
+      cf.addColorStop(1, rgba(coreCol, 0));
+      ctx.fillStyle = cf; ctx.beginPath(); ctx.arc(cx, cy, cfR, 0, 6.283); ctx.fill();
+    }
+
+    /* near half: sharp, shaded, with the glint */
+    for (var i = 0; i < N; i++) {
+      if (PD[i] < 0.5) continue;
+      var p = pts[i], base = p.s > 0.8 ? VIOLET : p.s > 0.55 ? TEAL : ICE;
       var colp = blend(base, EMBER, warmth * (0.35 + 0.65 * p.s));
-      if (boost > 0.02) colp = blend(colp, [255, 255, 255], Math.min(0.85, boost));
-      ctx.fillStyle = rgba(colp, Math.min(1, (0.14 + depth * 0.66) * shade + boost * 0.6));
+      var gl = PSP[i] + PB[i];
+      if (gl > 0.02) colp = blend(colp, [255, 255, 255], Math.min(0.9, gl));
+      ctx.fillStyle = rgba(colp, Math.min(1, (0.14 + PD[i] * 0.66) * PL[i] + PB[i] * 0.6 + PSP[i] * 0.6));
       ctx.beginPath();
-      ctx.arc(px, py, size, 0, 6.283);
+      ctx.arc(PX[i], PY[i], PS[i] * (1 + PSP[i] * 0.6), 0, 6.283);
       ctx.fill();
     }
 
@@ -3277,6 +3444,7 @@
 
     drawDust(true, cx, cy, R, t, tint);
     drawJets(true, cx, cy, R, t, 0);
+    drawBodies(true, cx, cy, R);
 
     /* meteors */
     if (!calm && now > nextMeteor) {
