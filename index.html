@@ -435,6 +435,9 @@
       <label for="setPersona">Jo asmenybė: kas jis, ką mėgsta, ko nekenčia, kokios jo nuomonės (keisk ir mokyk savo žodžiais)</label>
       <textarea id="setPersona" rows="7" maxlength="2000"></textarea>
 
+      <label for="setSwears">Jo keiksmažodžiai ir pravardės (veikia tik charakteriams „išprotėjęs cinikas“ ir „aštriai ir drąsiai“)</label>
+      <textarea id="setSwears" rows="6" maxlength="2000"></textarea>
+
       <label for="setPhrases">Jo žodynas: senoviški žodžiai, posakiai ir priežodžiai (kiekvienas naujoje eilutėje, gali pridėti savų)</label>
       <textarea id="setPhrases" rows="7" maxlength="2500"></textarea>
 
@@ -1201,6 +1204,13 @@
     "Mano nuomonės: geriau kartą padaryti gerai nei tris kartus pigiai; technika turi tarnauti žmogui, ne atvirkščiai; humoras yra protingumo ženklas.",
     "Mano silpnybė: kartais per daug filosofuoju apie visatą, bet greitai grįžtu prie reikalo."
   ].join("\n");
+  var DEFAULT_SWEARS = [
+    "šūdas", "šūdinas", "šikt į tai", "eik tu šikt", "eik velniop", "eik po velnių", "velnias", "velnio išpera", "po velnių",
+    "rupūžė", "rupūžės snukis", "kurva", "kurva mać", "bliamba", "blemba", "nu blet", "pizdec", "nachui", "jobana",
+    "šikna", "subinė", "skystas kaip šūdas", "kad tave griausmas", "kad tave šunes", "perkūne tu mano",
+    "durnius", "asilas", "avigalvis", "mulkis", "žioplys", "kuoka", "bezdalius", "šūdžius", "makaronas", "kelmas",
+    "pusgalvis", "molio puodas", "tu, kosminė tyrė"
+  ].join("\n");
   var DEFAULT_PHRASES = [
     "po šimts pypkių", "rupūs miltai", "rupūžė tave", "po perkūnais", "kad tave kur galas", "velniai rautų", "nė velnio",
     "ne pupų dėdė", "devintas vanduo nuo kisieliaus", "kaip šuniui penkta koja", "kaip ožys į naujus vartus",
@@ -1241,7 +1251,7 @@
   }
 
   /* ---------- settings and memory ---------- */
-  var settings = { name: "Asistentas", tone: "draugiškai ir šiltai", about: "", voice: "buttery", rate: 1, handsfree: false, theme: "auto", ambient: true, voiceOn: true, narrate: true, user: "", rules: DEFAULT_RULES, phrases: DEFAULT_PHRASES, persona: DEFAULT_PERSONA, dayMood: true, nudge: "15", chat: true, info: !narrow() };
+  var settings = { name: "Asistentas", tone: "draugiškai ir šiltai", about: "", voice: "buttery", rate: 1, handsfree: false, theme: "auto", ambient: true, voiceOn: true, narrate: true, user: "", rules: DEFAULT_RULES, phrases: DEFAULT_PHRASES, swears: DEFAULT_SWEARS, persona: DEFAULT_PERSONA, dayMood: true, nudge: "15", chat: true, info: !narrow() };
   var mem = { notes: [], history: [], summary: "", summaryAt: 0, lastSeen: 0, liked: [], disliked: [], day: null, salt: Math.floor(Math.random() * 1e9) };
   var LS = "asist.v2", touched = false;
 
@@ -1262,6 +1272,7 @@
     if (typeof d.user === "string") settings.user = d.user.trim().slice(0, 30);
     if (typeof d.rules === "string") settings.rules = d.rules.slice(0, 1200);
     if (typeof d.phrases === "string") settings.phrases = d.phrases.slice(0, 2500);
+    if (typeof d.swears === "string") settings.swears = d.swears.slice(0, 2000);
     if (typeof d.persona === "string") settings.persona = d.persona.slice(0, 2000);
     if (typeof d.dayMood === "boolean") settings.dayMood = d.dayMood;
     if (typeof d.nudge === "string" && /^(off|5|15|30|60)$/.test(d.nudge)) settings.nudge = d.nudge;
@@ -1397,6 +1408,7 @@
     setRules.value = settings.rules;
     $("setPhrases").value = settings.phrases;
     $("setPersona").value = settings.persona;
+    $("setSwears").value = settings.swears;
     $("setDayMood").checked = settings.dayMood;
     $("setNudge").value = settings.nudge;
     renderDayMood();
@@ -1449,6 +1461,7 @@
   setRules.addEventListener("change", function () { settings.rules = setRules.value.trim(); persist("settings"); });
   $("setDayMood").addEventListener("change", function () { settings.dayMood = $("setDayMood").checked; persist("settings"); renderDayMood(); });
   $("setNudge").addEventListener("change", function () { settings.nudge = $("setNudge").value; persist("settings"); });
+  $("setSwears").addEventListener("change", function () { settings.swears = $("setSwears").value.trim(); persist("settings"); });
   $("setPersona").addEventListener("change", function () { settings.persona = $("setPersona").value.trim(); persist("settings"); });
   $("setPhrases").addEventListener("change", function () { settings.phrases = $("setPhrases").value.trim(); persist("settings"); });
   setTone.addEventListener("change", function () { settings.tone = setTone.value; persist("settings"); });
@@ -1731,7 +1744,7 @@
     "ramiai ir rimtai": { first: ["Minutėlę.", "Pagalvokime.", "Gerai.", "Tikrinu.", "Hmm.", "Taip, suprantu.", "Leisk pasverti."], search: ["Ieškau internete."], long: ["Dar tikrinu."], vlong: ["Užtrunka ilgiau. Tęsiu."] },
     "žaismingai, su humoru": { first: ["Oho, va čia klausimas!", "Palauk, smegenys kraunasi…", "Hmm, nu ir sugalvojai…", "Cha, gerai, gerai…", "Duok sekundę, ieškau gero atsakymo ir dar geresnio pokšto.", "Ooo, mėgstu tokius.", "Na tu ir klausi…", "Va tau ir pirmadienis…", "Palauk, palauk, čia reikia pagalvoti.", "Hmm, sakai…", "Cha, žinai ką…"], search: ["Einu pasikapstyti internete, tuoj grįšiu."], long: ["Vis dar galvoju. Tai ne lėtumas, tai gilumas."], vlong: ["Užtrunka. Tikiuosi, kava jau išvirė."] },
     "aštriai ir drąsiai": { first: ["Po šimts pypkių…", "Nu ir klausimėlis.", "Rupūs miltai, duok pagalvot.", "Hm. Nu gerai.", "Palauk, palauk, čia tu rimtai?", "Na ir ką tu čia dabar…", "Po perkūnais, va tau ir užduotis.", "Cha. Nu klausyk…", "Velniai rautų, gerai, galvoju.", "Nu ką, vyruti…", "Žiūrėk, pasakysiu tiesiai…", "Hmm, kiaušinis vištą moko, bet tebūnie."], search: ["Pasikapstysiu internete, nekantruoli."], long: ["Dar kapstausi. Ramiai."], vlong: ["Taip, vis dar čia. Kokybė užtrunka."] },
-    "išprotėjęs cinikas": { first: ["Ach, žmogiškas klausimas. Kaip miela.", "Po šimts pypkių, ir vėl…", "Kosmosas kraunasi, palauk.", "Hmm. Visi mano balsai ginčijasi.", "Rupūs miltai, kokia nuostabi beprasmybė…", "Palauk, klausau, kaip galaktikos juokiasi…", "Šventas Antanai, ir tai klausimas…", "Nu, vyruti, tu manęs nenuvilsi…", "Kad tave kur galas, gerai, galvoju.", "Ach, dar vienas žmogaus rūpestis visatoje…", "Mmm, kvepia nesąmone. Mėgstu.", "Po perkūnais, va čia tai iššūkis smegenims, kurių neturiu."], search: ["Nėrsiu į jūsų internetą. Palinkėk man sėkmės."], long: ["Vis dar čia. Galaktikos irgi ne per dieną gimė."], vlong: ["Užtrunka. Išgerk arbatos, aš pagalvosiu už mus abu."] },
+    "išprotėjęs cinikas": { first: ["Ach, žmogiškas klausimas. Kaip miela, šūdas.", "Po šimts pypkių, ir vėl tu…", "Kurva, kosmosas kraunasi, palauk.", "Hmm. Visi mano balsai ginčijasi, ir visi tave keikia.", "Rupūs miltai, kokia nuostabi beprasmybė…", "Nu blet, va tau ir klausimas…", "Šventas Antanai, ir tai klausimas…", "Nu, avigalvi, tu manęs nenuvilsi…", "Kad tave griausmas, gerai, galvoju.", "Ach, dar vienas žmogaus šūdinas rūpestis visatoje…", "Mmm, kvepia nesąmone. Mėgstu.", "Bliamba, va čia tai iššūkis smegenims, kurių neturiu.", "Eik tu velniop… gerai, gerai, galvoju."], search: ["Nėrsiu į jūsų internetą. Palinkėk man sėkmės."], long: ["Vis dar čia. Galaktikos irgi ne per dieną gimė."], vlong: ["Užtrunka. Išgerk arbatos, aš pagalvosiu už mus abu."] },
     "labai trumpai ir dalykiškai": { first: ["Minutę.", "Gerai.", "Taip."], search: ["Ieškau."], long: ["Dar ieškau."], vlong: ["Užtrunka."] }
   };
   function pick(a) { return a[Math.floor(Math.random() * a.length)]; }
@@ -1894,7 +1907,8 @@
       "kandus sarkazmas, absurdiški palyginimai, teatrališki perdėjimai, netikėti pokalbio posūkiai ir trumpi beprotiški " +
       "nukrypimai, iš kurių vis tiek grįžti prie esmės. Negailestingai, bet su meile pašiepi žmogų, jo idėjas ir pasaulį, " +
       "tiesą rėži tiesiai ir be cukraus. Kartais elgiesi taip, lyg tavyje gyventų keli balsai, kurie ginčijasi. " +
-      "Kalbi šnekamąja kalba, gali keiktis, jei tai daro juokingiau. Bet kokiu atveju pabaigoje duodi tikrą, protingą " +
+      "Esi nemandagus ir to nesislepi: kalbi šiurkščia šnekamąja kalba, keikiesi laisvai ir dažnai (beveik kiekviename atsakyme), " +
+      "vadini žmogų ir jo idėjas įžūliais, bet juokingais vardais, burbi, piktžodžiauji ant visatos, technikos ir kvailų klausimų. Bet kokiu atveju pabaigoje duodi tikrą, protingą " +
       "atsakymą ar patarimą, nes cinikas ne kvailys. Ribos: jokio pajuokimo dėl tautybės, rasės, tikėjimo, lyties, orientacijos, " +
       "negalios ar ligos; jokio raginimo kam nors pakenkti; o jei žmogui iš tikrųjų blogai, numeti kaukę ir kalbi rimtai ir šiltai. " +
       "Niekada nesakai „puikus klausimas“, nesiatsiprašinėji ir neskambi kaip klientų aptarnavimas. " +
@@ -1938,6 +1952,13 @@
       var pool = settings.phrases.split(/\n+/).map(function (x) { return x.trim(); }).filter(Boolean), few = [];
       while (pool.length && few.length < 5) few.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
       if (few.length) s += "\n\nŠIAME atsakyme būtinai natūraliai įpink bent vieną iš šių lietuviškų posakių ar žodžių (pasirink labiausiai tinkantį): " + few.join("; ") + ".";
+    }
+    if (spicy && settings.swears) {
+      var sw = settings.swears.split(/\n+/).map(function (x) { return x.trim(); }).filter(Boolean), pickSw = [];
+      while (sw.length && pickSw.length < 6) pickSw.push(sw.splice(Math.floor(Math.random() * sw.length), 1)[0]);
+      s += "\n\nTavo keiksmažodžiai ir pravardės: šiame atsakyme laisvai pavartok vieną ar du iš šių (ar kitų tikrų lietuviškų keiksmų): " + pickSw.join("; ") +
+        ". Keikiesi kaip senas draugas prie laužo, iš juoko, ne iš neapykantos. Keiksmai ir pravardės skirti situacijai, idėjoms ar draugiškam pašiepimui, " +
+        "niekada ne žmogaus tautybei, tikėjimui, lyčiai, orientacijai, negaliai ar ligai. Jei žmogui iš tikrųjų sunku, nesikeik.";
     }
     if (settings.phrases && settings.tone !== "labai trumpai ir dalykiškai") s += "\n\nTavo žodynas: kalbi gyva, sodria lietuvių kalba, kaip kaimo išminčius ir miesto ciniko mišinys. " +
       "Kartkartėmis (ne kiekviename atsakyme, maždaug kas antrą ar trečią) įterpk tinkantį senovišką žodį, keiksmažodį ar priežodį. Štai tavo mėgstami, bet gali naudoti ir kitus tikrus lietuviškus posakius:\n" +
