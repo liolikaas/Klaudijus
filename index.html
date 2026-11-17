@@ -950,7 +950,7 @@
           me.src.start(); me.sub.start();
           if (!started) {
             started = true;
-            status("stVoice", true, "Balsas: ElevenLabs" + (K.elVoiceName ? " (" + K.elVoiceName.replace(/^✓ /, "") + ")" : "") + (mood !== "calm" ? ", nuotaika: " + mood : ""));
+            status("stVoice", true, "Balsas: ElevenLabs" + (K.elVoiceName ? " (" + K.elVoiceName.replace(/^✓ /, "") + ")" : "") + (mood !== "calm" ? ", nuotaika: " + ({ joy: "džiugi", wow: "nustebęs", serious: "rimta", care: "rūpestinga" }[mood] || mood) : ""));
             emit("speaking");
           }
         }).catch(function (e) { fail(e, i); });
@@ -1513,13 +1513,18 @@
   });
 
   /* home screen: a clock after a minute of quiet */
-  var idleT = null;
+  var idleT = null, lastHour = new Date().getHours();
   function tick() {
     var n = new Date();
     var hm = ("0" + n.getHours()).slice(-2) + ":" + ("0" + n.getMinutes()).slice(-2), day;
     try { day = n.toLocaleDateString("lt-LT", { weekday: "long", month: "long", day: "numeric" }); }
     catch (e) { day = n.toDateString(); }
     clockTime.textContent = hm; clockDate.textContent = day;
+    if (n.getHours() !== lastHour) {
+      lastHour = n.getHours();
+      if (settings.theme === "auto") applyTheme("auto");
+      renderDayMood();
+    }
     $("miniTime").textContent = hm; $("miniDate").textContent = day;
   }
   function wake() {
@@ -1773,12 +1778,13 @@
     if (!settings.narrate || !busy) return;
     if (bubble && bubble.textContent.length < 120) { bubble.textContent = text; captionEl.textContent = text; scrollTalk(); }
     if (!tts || muted || fillerActive) return;
+    if (text === currentOpener) openerSpoken = true;
     fillerActive = true;
     fillerP = tts.speak(text, { voice: settings.voice, rate: settings.rate, mood: "calm", tilt: dayTilt(), cache: true }).catch(noop).then(function () { fillerActive = false; });
   }
-  var currentOpener = "", lastOpener = "";
+  var currentOpener = "", lastOpener = "", openerSpoken = false;
   function chooseOpener(question) {
-    currentOpener = "";
+    currentOpener = ""; openerSpoken = false;
     if (!settings.narrate || !tts || muted) return;
     var willSearch = window.__canSearch && window.__canSearch() &&
       /\b(orai|oras|orų|naujien|šiandien|kaina|kainos|kursas|rezultat|kas vyksta|ieškok|surask|paieškok)/i.test(question);
@@ -2268,6 +2274,8 @@
     }).catch(function () { busy = false; setState("idle"); lastActivity = Date.now(); });
   }
   setInterval(checkNudge, 20000);
+  /* coming back to the window counts as being here: no "are you alive?" the moment you return */
+  document.addEventListener("visibilitychange", function () { if (document.visibilityState === "visible") lastActivity = Date.now(); });
 
   var queuedQ = null;
   function ask(question, alts) {
@@ -2353,10 +2361,12 @@
         "Nepavyko gauti atsakymo. Bandyk dar kartą.";
     }).then(function () {
       fillerTimers.forEach(clearTimeout);
-      currentOpener = "";
       busy = false; sendBtn.disabled = false;
       if (!narrow() && !listening) { try { input.focus(); } catch (e) {} }
-      if (answer) speak(answer, false, answerMood); else setState("idle");
+      /* if the answer came back before the opener was said, say both together */
+      var toSay = answer && currentOpener && !openerSpoken ? currentOpener + " " + answer : answer;
+      currentOpener = "";
+      if (answer) speak(toSay, false, answerMood); else setState("idle");
       if (queuedQ && !answer) runQueued();
     });
   }
