@@ -1578,12 +1578,12 @@
   /* living conversation: short spoken remarks while he works */
   var fillerActive = false, fillerP = null;
   var FILLERS = {
-    "draugiškai ir šiltai": { first: ["Hmm, minutėlę.", "Gerai, pagalvoju.", "Tuoj, sudėliosiu mintis."], search: ["Pažiūrėsiu internete, minutėlę."], long: ["Dar galvoju, tuoj.", "Užtrunka, bet jau beveik."], vlong: ["Ilgiau nei tikėjausi, bet nepaleidžiu."] },
-    "ramiai ir rimtai": { first: ["Minutėlę.", "Tikrinu."], search: ["Ieškau internete."], long: ["Dar tikrinu."], vlong: ["Užtrunka ilgiau. Tęsiu."] },
-    "žaismingai, su humoru": { first: ["Palauk, smegenys kraunasi.", "Minutėlę, ieškau gero atsakymo ir dar geresnio pokšto.", "Hmm, įdomu. Duok sekundę."], search: ["Einu pasikapstyti internete, tuoj grįšiu."], long: ["Vis dar galvoju. Tai ne lėtumas, tai gilumas."], vlong: ["Užtrunka. Tikiuosi, kava jau išvirė."] },
-    "aštriai ir drąsiai": { first: ["Na gerai, duok sekundę.", "Hm. Palauk."], search: ["Pasikapstysiu internete, nekantruoli."], long: ["Dar kapstausi. Ramiai."], vlong: ["Taip, vis dar čia. Kokybė užtrunka."] },
-    "išprotėjęs cinikas": { first: ["Ach, žmogiškas klausimas. Sekundę.", "Kosmosas kraunasi, palauk.", "Hmm. Visi mano balsai ginčijasi. Minutėlę."], search: ["Nėrsiu į jūsų internetą. Palinkėk man sėkmės."], long: ["Vis dar čia. Galaktikos irgi ne per dieną gimė."], vlong: ["Užtrunka. Išgerk arbatos, aš pagalvosiu už mus abu."] },
-    "labai trumpai ir dalykiškai": { first: ["Minutę."], search: ["Ieškau."], long: ["Dar ieškau."], vlong: ["Užtrunka."] }
+    "draugiškai ir šiltai": { first: ["Hmm, žinai ką…", "Oho, palauk, pagalvosiu.", "Na va, įdomu…", "Gerai gerai, duok sekundę.", "Mmm, mintis jau kirba…", "Ach, va kaip…", "Žiūrėk, čia toks dalykas…", "Klausyk, aš tau pasakysiu…", "Hmm, tegul pagalvoju garsiai.", "Na, brolau…", "Va čia tai įdomu.", "Palauk, sudėliosiu."], search: ["Pažiūrėsiu internete, minutėlę."], long: ["Dar galvoju, tuoj.", "Užtrunka, bet jau beveik."], vlong: ["Ilgiau nei tikėjausi, bet nepaleidžiu."] },
+    "ramiai ir rimtai": { first: ["Minutėlę.", "Pagalvokime.", "Gerai.", "Tikrinu.", "Hmm.", "Taip, suprantu.", "Leisk pasverti."], search: ["Ieškau internete."], long: ["Dar tikrinu."], vlong: ["Užtrunka ilgiau. Tęsiu."] },
+    "žaismingai, su humoru": { first: ["Oho, va čia klausimas!", "Palauk, smegenys kraunasi…", "Hmm, nu ir sugalvojai…", "Cha, gerai, gerai…", "Duok sekundę, ieškau gero atsakymo ir dar geresnio pokšto.", "Ooo, mėgstu tokius.", "Na tu ir klausi…", "Va tau ir pirmadienis…", "Palauk, palauk, čia reikia pagalvoti.", "Hmm, sakai…", "Cha, žinai ką…"], search: ["Einu pasikapstyti internete, tuoj grįšiu."], long: ["Vis dar galvoju. Tai ne lėtumas, tai gilumas."], vlong: ["Užtrunka. Tikiuosi, kava jau išvirė."] },
+    "aštriai ir drąsiai": { first: ["Po šimts pypkių…", "Nu ir klausimėlis.", "Rupūs miltai, duok pagalvot.", "Hm. Nu gerai.", "Palauk, palauk, čia tu rimtai?", "Na ir ką tu čia dabar…", "Po perkūnais, va tau ir užduotis.", "Cha. Nu klausyk…", "Velniai rautų, gerai, galvoju.", "Nu ką, vyruti…", "Žiūrėk, pasakysiu tiesiai…", "Hmm, kiaušinis vištą moko, bet tebūnie."], search: ["Pasikapstysiu internete, nekantruoli."], long: ["Dar kapstausi. Ramiai."], vlong: ["Taip, vis dar čia. Kokybė užtrunka."] },
+    "išprotėjęs cinikas": { first: ["Ach, žmogiškas klausimas. Kaip miela.", "Po šimts pypkių, ir vėl…", "Kosmosas kraunasi, palauk.", "Hmm. Visi mano balsai ginčijasi.", "Rupūs miltai, kokia nuostabi beprasmybė…", "Palauk, klausau, kaip galaktikos juokiasi…", "Šventas Antanai, ir tai klausimas…", "Nu, vyruti, tu manęs nenuvilsi…", "Kad tave kur galas, gerai, galvoju.", "Ach, dar vienas žmogaus rūpestis visatoje…", "Mmm, kvepia nesąmone. Mėgstu.", "Po perkūnais, va čia tai iššūkis smegenims, kurių neturiu."], search: ["Nėrsiu į jūsų internetą. Palinkėk man sėkmės."], long: ["Vis dar čia. Galaktikos irgi ne per dieną gimė."], vlong: ["Užtrunka. Išgerk arbatos, aš pagalvosiu už mus abu."] },
+    "labai trumpai ir dalykiškai": { first: ["Minutę.", "Gerai.", "Taip."], search: ["Ieškau."], long: ["Dar ieškau."], vlong: ["Užtrunka."] }
   };
   function pick(a) { return a[Math.floor(Math.random() * a.length)]; }
   function speakFiller(text, bubble) {
@@ -1593,12 +1593,23 @@
     fillerActive = true;
     fillerP = tts.speak(text, { voice: settings.voice, rate: settings.rate }).catch(noop).then(function () { fillerActive = false; });
   }
+  var currentOpener = "", lastOpener = "";
+  function chooseOpener(question) {
+    currentOpener = "";
+    if (!settings.narrate || !tts || muted) return;
+    var willSearch = window.__canSearch && window.__canSearch() &&
+      /\b(orai|oras|orų|naujien|šiandien|kaina|kainos|kursas|rezultat|kas vyksta|ieškok|surask|paieškok)/i.test(question);
+    if (willSearch) return;
+    var set = (FILLERS[settings.tone] || FILLERS["draugiškai ir šiltai"]).first, o, n = 0;
+    do { o = pick(set); } while (o === lastOpener && ++n < 5);
+    currentOpener = lastOpener = o;
+  }
   function startFillers(question, bubble) {
     var set = FILLERS[settings.tone] || FILLERS["draugiškai ir šiltai"];
     var willSearch = window.__canSearch && window.__canSearch() &&
       /\b(orai|oras|orų|naujien|šiandien|kaina|kainos|kursas|rezultat|kas vyksta|ieškok|surask|paieškok)/i.test(question);
     return [
-      setTimeout(function () { speakFiller(pick(willSearch ? set.search : set.first), bubble); }, willSearch ? 700 : 1500),
+      setTimeout(function () { speakFiller(willSearch ? pick(set.search) : (currentOpener || pick(set.first)), bubble); }, willSearch ? 400 : 300),
       setTimeout(function () { speakFiller(pick(set.long), bubble); }, 8500),
       setTimeout(function () { speakFiller(pick(set.vlong), bubble); }, 19000)
     ];
@@ -1708,6 +1719,14 @@
       "Apie mikrofoną ir patį langą kalbėk tik tada, kai žmogus aiškiai to klausia.";
     if (settings.user) s += "\n\nŽmogų vadink vardu: " + settings.user + ".";
     if (settings.about) s += "\n\nApie žmogų, su kuriuo kalbi: " + settings.about;
+    if (currentOpener) s += "\n\nSVARBU: tu jau garsiai pradėjai atsakymą žodžiais „" + currentOpener + "“. Tavo tekstas skambės iškart po jų, todėl tęsk sklandžiai, " +
+      "lyg tai būtų tas pats sakinys ar mintis: nekartok tų žodžių, nepradėk iš naujo „hmm“, „na“ ar pasisveikinimu.";
+    var spicy = settings.tone === "aštriai ir drąsiai" || settings.tone === "išprotėjęs cinikas";
+    if (settings.phrases && settings.tone !== "labai trumpai ir dalykiškai" && (spicy || Math.random() < 0.5)) {
+      var pool = settings.phrases.split(/\n+/).map(function (x) { return x.trim(); }).filter(Boolean), few = [];
+      while (pool.length && few.length < 5) few.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
+      if (few.length) s += "\n\nŠIAME atsakyme būtinai natūraliai įpink bent vieną iš šių lietuviškų posakių ar žodžių (pasirink labiausiai tinkantį): " + few.join("; ") + ".";
+    }
     if (settings.phrases && settings.tone !== "labai trumpai ir dalykiškai") s += "\n\nTavo žodynas: kalbi gyva, sodria lietuvių kalba, kaip kaimo išminčius ir miesto ciniko mišinys. " +
       "Kartkartėmis (ne kiekviename atsakyme, maždaug kas antrą ar trečią) įterpk tinkantį senovišką žodį, keiksmažodį ar priežodį. Štai tavo mėgstami, bet gali naudoti ir kitus tikrus lietuviškus posakius:\n" +
       settings.phrases.split(/\n+/).filter(Boolean).join("; ") +
@@ -1858,6 +1877,7 @@
     mem.history.push({ role: "user", content: question });
     var recent = mem.history.slice(-24);
     while (recent.length && recent[0].role !== "user") recent.shift();
+    chooseOpener(question);
     var lead = instructions();
     mem.lastSeen = Date.now();
     var messages = recent.map(function (m, i) {
@@ -1878,16 +1898,17 @@
     }).then(function (res) {
       var parts = splitMood((res && res.text) || "");
       answer = parts.text.trim();
+      var shownAnswer = answer && currentOpener ? currentOpener + " " + answer : answer;
       if (answer && parts.mood) react(parts.mood);
       if (answer && holdText()) {
         bubble.textContent = "…";
-        pending = { bubble: bubble, text: answer };
+        pending = { bubble: bubble, text: shownAnswer };
         pendingT = setTimeout(reveal, 15000);
       } else {
-        bubble.textContent = answer || "Negavau atsakymo. Paklausk dar kartą.";
+        bubble.textContent = shownAnswer || "Negavau atsakymo. Paklausk dar kartą.";
         captionEl.textContent = bubble.textContent;
       }
-      if (answer) mem.history.push({ role: "assistant", content: answer });
+      if (answer) mem.history.push({ role: "assistant", content: shownAnswer });
       else mem.history.pop();
       persist("memory");
       maybeSummarize();
