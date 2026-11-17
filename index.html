@@ -520,7 +520,7 @@
   var CFG_KEY = "klaudijus.cfg";
   var K = {
     anKey: "", anModel: "claude-haiku-5-5",
-    elKey: "", elVoice: "", elVoiceName: "", elModel: "eleven_v4", search: "on",
+    elKey: "", elVoice: "", elVoiceName: "", elModel: "eleven_v4", search: "on", fallback: "on",
     fx: { tonas: 0.81, bosas: 12, tamsa: 0.3, siurkstumas: 0.15, aidas: 0.1, ilgis: 3, kartojimas: 0.05, dugnas: 0.05 }
   };
   try {
@@ -702,12 +702,21 @@
   function browserSpeak(text, res, rej) {
     if (!window.speechSynthesis) { rej({ code: "no_voice" }); return; }
     var u = new SpeechSynthesisUtterance(text); u.lang = "lt-LT";
+    try {
+      var vs = window.speechSynthesis.getVoices() || [];
+      var lt = vs.filter(function (v) { return /^lt/i.test(v.lang); });
+      if (lt.length) u.voice = lt.filter(function (v) { return /google|natural|online/i.test(v.name); })[0] || lt[0];
+    } catch (e) {}
+    u.rate = 1; u.pitch = 0.8;
     cur = { rej: rej };
     u.onstart = function () { emit("speaking"); };
     u.onend = function () { if (cur && cur.rej === rej) { cur = null; emit("idle", "completed"); res(); } };
     u.onerror = function () { if (cur && cur.rej === rej) { cur = null; emit("idle", "error"); rej({ code: "tts_error" }); } };
     window.speechSynthesis.cancel(); window.speechSynthesis.speak(u);
   }
+  try { if (window.speechSynthesis) { window.speechSynthesis.getVoices(); window.speechSynthesis.onvoiceschanged = function () {}; } } catch (e) {}
+  /* when ElevenLabs fails (credits used up, no internet), skip it for a while and use the free browser voice */
+  var elDownUntil = 0;
   /* free replays: short phrases (fillers, greetings) are generated once, then played from device storage */
   var phraseDb = null;
   function phraseOpen() {
@@ -755,10 +764,16 @@
       });
       if (!chunks.length) chunks = [String(text)];
 
-      function fail(err) {
+      function fail(err, from) {
         if (cur !== me) return;
         cur = null;
         if (err && err.name === "AbortError") return;
+        if (K.fallback === "on" && window.speechSynthesis) {
+          if (!(err && err.code === "el_down")) elDownUntil = Date.now() + 15 * 60000;
+          status("stVoice", true, "Balsas: atsarginis nemokamas (ElevenLabs: " + ((err && err.message) || "nepasiekiamas") + ")");
+          browserSpeak(chunks.slice(from || 0).join(" "), res, rej);
+          return;
+        }
         status("stVoice", false, "Balsas: klaida. " + ((err && err.message) || "nepavyko pasiekti ElevenLabs"));
         emit("idle", "error");
         rej(err && err.code ? err : { code: "tts_error" });
@@ -769,6 +784,7 @@
         var getAb = cacheable ? phraseGet(ckey) : Promise.resolve(null);
         return getAb.then(function (hit) {
           if (hit) return hit;
+          if (Date.now() < elDownUntil) throw { code: "el_down", message: "laikinai neveikia, naudoju atsarginį" };
           return fetch("https://api.elevenlabs.io/v1/text-to-speech/" + encodeURIComponent(K.elVoice) + "?output_format=mp3_44100_128", {
             method: "POST", signal: me.abort.signal,
             headers: { "xi-api-key": K.elKey, "content-type": "application/json" },
@@ -803,7 +819,7 @@
             status("stVoice", true, "Balsas: ElevenLabs" + (K.elVoiceName ? " (" + K.elVoiceName.replace(/^✓ /, "") + ")" : ""));
             emit("speaking");
           }
-        }).catch(fail);
+        }).catch(function (e) { fail(e, i); });
       }
       playPart(0);
     });
@@ -843,7 +859,7 @@
   }
   function refresh() {
     status("stBrain", !!K.anKey, K.anKey ? "Asistentas: raktas įvestas (" + K.anModel + (searchBroken ? ", paieška internete neįjungta Anthropic konsolėje" : window.__canSearch() ? ", su paieška internete" : "") + ")" : "Asistentas: įvesk Anthropic raktą nustatymuose");
-    status("stVoice", !!(K.elKey && K.elVoice), K.elKey && K.elVoice ? "Balsas: ElevenLabs" + (K.elVoiceName ? " (" + K.elVoiceName + ")" : "")
+    if (Date.now() < elDownUntil) status("stVoice", true, "Balsas: atsarginis nemokamas (ElevenLabs laikinai neveikia)"); else status("stVoice", !!(K.elKey && K.elVoice), K.elKey && K.elVoice ? "Balsas: ElevenLabs" + (K.elVoiceName ? " (" + K.elVoiceName + ")" : "")
       : "Balsas: naršyklės balsas, kol neįvestas ElevenLabs raktas ir balsas");
     status("stStore", true, "Atmintis: šiame įrenginyje");
   }
@@ -962,6 +978,13 @@
     chk.appendChild(cb); chk.appendChild(el("span", null, "Leisti ieškoti internete (naujienos, orai). Kiekviena paieška kainuoja papildomai"));
     box.appendChild(chk);
 
+    var chk2 = el("label", { "class": "check" });
+    var cb2 = el("input", { type: "checkbox", id: "kFallback" });
+    cb2.checked = K.fallback === "on";
+    cb2.addEventListener("change", function () { K.fallback = cb2.checked ? "on" : "off"; elDownUntil = 0; save(); });
+    chk2.appendChild(cb2); chk2.appendChild(el("span", null, "Atsarginis nemokamas balsas: kai ElevenLabs kreditai baigiasi ar nėra ryšio, kalbėti naršyklės balsu (prastesnis, bet nemokamas)"));
+    box.appendChild(chk2);
+
     box.appendChild(el("h3", null, "Balso skambesys"));
     FX.forEach(function (f) {
       var w = el("div", { "class": "fx" });
@@ -976,7 +999,7 @@
       var set = function (id, v) { var e = document.getElementById(id); if (e) e.value = v; };
       set("kAn", K.anKey); fillModels(); updateChip(); set("kEl", K.elKey);
       set("kVoiceId", K.elVoice); set("kElModel", K.elModel);
-      cb.checked = K.search === "on";
+      cb.checked = K.search === "on"; cb2.checked = K.fallback === "on";
       fill(K.elVoice ? [{ voice_id: K.elVoice, name: K.elVoiceName || K.elVoice }] : []);
       FX.forEach(function (f) {
         set("fx-" + f[0], K.fx[f[0]]);
