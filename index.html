@@ -2796,11 +2796,11 @@
     var dx = cx - sx, dy = cy - sy, dl = Math.sqrt(dx * dx + dy * dy); dx /= dl; dy /= dl;
     var b = R * (1.2 + Math.random() * 1.3) * (Math.random() < 0.5 ? -1 : 1);
     var tx = cx - dy * b, ty = cy + dx * b, vx = tx - sx, vy = ty - sy, vl = Math.sqrt(vx * vx + vy * vy);
-    var sp = R * (1.7 + Math.random() * 0.9);
+    var sp = R * (0.6 + Math.random() * 0.35);
     bodies.push({ x: sx, y: sy, vx: vx / vl * sp, vy: vy / vl * sp, front: Math.random() < 0.6, trail: [], c: Math.random(), age: 0, f: 1 });
   }
   function updateBodies(cx, cy, R, dt) {
-    var G = R * R * R * 2.6, rs = R * 0.95;
+    var G = R * R * R * 0.9, rs = R * 0.95;
     for (var i = bodies.length - 1; i >= 0; i--) {
       var b = bodies[i];
       b.age += dt;
@@ -2812,8 +2812,8 @@
         b.x += b.vx * h * f; b.y += b.vy * h * f; b.f = f; b.r = r;
       }
       b.trail.push(b.x, b.y, b.f);
-      if (b.trail.length > 150) b.trail.splice(0, 3);
-      if (b.age > 45 || (b.age > 4 && b.r > Math.max(W, H) * 0.9)) bodies.splice(i, 1);
+      if (b.trail.length > 420) b.trail.splice(0, 3);
+      if (b.age > 90 || (b.age > 6 && b.r > Math.max(W, H) * 0.9)) bodies.splice(i, 1);
     }
   }
   var RED = [255, 70, 40];
@@ -3255,7 +3255,7 @@
     }
 
     if (!calm) {
-      if (now > nextBody) { nextBody = now + 5000 + Math.random() * 7000; if (bodies.length < 3) spawnBody(cx, cy, R); }
+      if (now > nextBody) { nextBody = now + 9000 + Math.random() * 8000; if (bodies.length < 2) spawnBody(cx, cy, R); }
       updateBodies(cx, cy, R, dt);
     }
     drawBodies(false, cx, cy, R);
