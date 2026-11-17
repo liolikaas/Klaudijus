@@ -702,20 +702,52 @@
     emit("idle", reason);
     c.rej({ code: reason });
   }
+  /* the browser voice, made sturdy: sentence by sentence (Chrome cuts long speech), a short pause after cancel
+     (Chrome drops an utterance spoken right after cancel), references kept (Chrome loses callbacks otherwise),
+     and a watchdog so a silent voice never leaves the app hanging */
+  var keepU = [], ltVoiceWarned = false, browserDeadUntil = 0;
   function browserSpeak(text, res, rej) {
-    if (!window.speechSynthesis) { rej({ code: "no_voice" }); return; }
-    var u = new SpeechSynthesisUtterance(text); u.lang = "lt-LT";
+    var synth = window.speechSynthesis;
+    if (!synth) { rej({ code: "no_voice" }); return; }
+    if (Date.now() < browserDeadUntil) { rej({ code: "tts_error", message: "naršyklės balsas šiame įrenginyje neprakalba" }); return; }
+    var me = { rej: rej }; cur = me;
+    var voice = null;
     try {
-      var vs = window.speechSynthesis.getVoices() || [];
+      var vs = synth.getVoices() || [];
       var lt = vs.filter(function (v) { return /^lt/i.test(v.lang); });
-      if (lt.length) u.voice = lt.filter(function (v) { return /google|natural|online/i.test(v.name); })[0] || lt[0];
+      if (lt.length) voice = lt.filter(function (v) { return /google|natural|online/i.test(v.name); })[0] || lt[0];
+      else if (vs.length && !ltVoiceWarned) { ltVoiceWarned = true; status("stVoice", true, "Balsas: atsarginis, bet šis įrenginys neturi lietuviško balso, todėl tarimas bus keistas"); }
     } catch (e) {}
-    u.rate = 1; u.pitch = 0.8;
-    cur = { rej: rej };
-    u.onstart = function () { emit("speaking"); };
-    u.onend = function () { if (cur && cur.rej === rej) { cur = null; emit("idle", "completed"); res(); } };
-    u.onerror = function () { if (cur && cur.rej === rej) { cur = null; emit("idle", "error"); rej({ code: "tts_error" }); } };
-    window.speechSynthesis.cancel(); window.speechSynthesis.speak(u);
+    var parts = String(text).split(/(?<=[.!?…])\s+/).filter(Boolean);
+    if (!parts.length) parts = [String(text)];
+    var started = false, idx = 0, dog = null, keep = null;
+    function done(ok, err) {
+      clearTimeout(dog); clearInterval(keep); keepU = [];
+      if (cur !== me) return;
+      cur = null; emit("idle", ok ? "completed" : "error");
+      if (ok) res(); else rej(err || { code: "tts_error" });
+    }
+    function next() {
+      if (cur !== me) return;
+      if (idx >= parts.length) { done(true); return; }
+      var u = new SpeechSynthesisUtterance(parts[idx++]);
+      u.lang = "lt-LT"; if (voice) u.voice = voice; u.rate = 1; u.pitch = 0.8;
+      keepU.push(u);
+      u.onstart = function () { clearTimeout(dog); if (!started) { started = true; emit("speaking"); } };
+      u.onend = function () { clearTimeout(dog); next(); };
+      u.onerror = function (e) {
+        clearTimeout(dog);
+        if (e && (e.error === "interrupted" || e.error === "canceled")) return;
+        if (started) next(); else done(false, { code: "tts_error", message: "naršyklės balsas neprakalbo" });
+      };
+      clearTimeout(dog);
+      dog = setTimeout(function () { if (cur === me) { try { synth.cancel(); } catch (e) {} if (!started) browserDeadUntil = Date.now() + 10 * 60000; if (started) next(); else done(false, { code: "tts_error", message: "naršyklės balsas neprakalbo" }); } },
+        started ? 4000 + parts[idx - 1].length * 120 : 3500);
+      synth.speak(u);
+    }
+    try { synth.cancel(); } catch (e) {}
+    if (!/Android/i.test(navigator.userAgent)) keep = setInterval(function () { try { if (synth.speaking && !synth.paused) { synth.pause(); synth.resume(); } } catch (e) {} }, 9000);
+    setTimeout(next, 80);
   }
   try { if (window.speechSynthesis) { window.speechSynthesis.getVoices(); window.speechSynthesis.onvoiceschanged = function () {}; } } catch (e) {}
   /* when ElevenLabs fails (credits used up, no internet), skip it for a while and use the free browser voice */
@@ -1442,7 +1474,7 @@
   });
 
   /* dictation: a pause in speech sends the question */
-  var silenceT = null, autoBlocked = false;
+  var silenceT = null, autoBlocked = false, heardAlts = [];
   function armSilence(ms) {
     clearTimeout(silenceT);
     silenceT = setTimeout(function () { if (listening && dict) dict.stop().catch(noop); }, ms);
@@ -1459,7 +1491,7 @@
         return new Promise(function (res, rej) {
           try {
             var started = false;
-            rec = new SR(); rec.lang = "lt-LT"; rec.interimResults = true; rec.continuous = !/Android/i.test(navigator.userAgent);
+            rec = new SR(); rec.lang = "lt-LT"; rec.interimResults = true; rec.maxAlternatives = 3; rec.continuous = !/Android/i.test(navigator.userAgent);
             rec.onstart = function () { started = true; cbS({ state: "listening" }); res(); };
             rec.onerror = function (e) {
               if (!started) rej({ code: e.error === "not-allowed" || e.error === "service-not-allowed" ? "not_granted" : e.error });
@@ -1469,7 +1501,12 @@
               /* rebuild the whole phrase every time: Android repeats words when pieces are appended */
               /* Android often sends each piece again together with everything before it:
                  keep a piece only if it adds something new */
-              var acc = "";
+              var acc = "", alts = [];
+              for (var j = 0; j < e.results.length; j++) {
+                var r = e.results[j];
+                if (r.isFinal && r.length > 1 && r[0].confidence && r[0].confidence < 0.85)
+                  for (var k = 1; k < r.length; k++) { var at = String(r[k].transcript || "").trim(); if (at && alts.indexOf(at) === -1) alts.push(at); }
+              }
               for (var i = 0; i < e.results.length; i++) {
                 var t = String(e.results[i][0].transcript || "").replace(/\s+/g, " ").trim();
                 if (!t) continue;
@@ -1478,7 +1515,7 @@
                 else if (A.indexOf(T) !== -1) continue;
                 else acc += " " + t;
               }
-              cbP({ text: acc });
+              cbP({ text: acc, alts: alts });
             };
             rec.start();
           } catch (err) { rej({ code: "error" }); }
@@ -1498,7 +1535,8 @@
     var settled = "";
     d.onPartial(function (e) {
       input.value = (settled + " " + e.text).trim();
-      if (input.value) armSilence(2000);
+      heardAlts = e.alts || [];
+      if (input.value) armSilence(2400);
     });
     d.onFinal(function (e) {
       settled = (settled + " " + e.text).trim();
@@ -1507,7 +1545,7 @@
     });
     d.onState(function (e) {
       if (e.state === "listening") {
-        listening = true; settled = "";
+        listening = true; settled = ""; heardAlts = [];
         micBtn.setAttribute("aria-pressed", "true");
         setStatus("stMic", true, "Mikrofonas: klausau");
         setState("listening");
@@ -1518,7 +1556,7 @@
         micBtn.setAttribute("aria-pressed", "false");
         setStatus("stMic", true, "Mikrofonas: išjungtas, spausk raudoną mygtuką");
         if (state === "listening") setState("idle");
-        if (input.value.trim()) ask(input.value.trim());
+        if (input.value.trim()) { var hv = input.value.trim(), ha = heardAlts; heardAlts = []; ask(hv, ha); }
         else setStatus("stMic", false, "Mikrofonas: nieko neišgirdau" + (e.reason ? " (" + e.reason + ")" : "") +
           ". Patikrink, ar naršyklėje pasirinktas tinkamas mikrofonas ir ar jis neužtildytas");
       } else {
@@ -1564,8 +1602,15 @@
     if (muted) { stopSpeaking(); if (state === "speaking") setState("idle"); }
   });
 
+  function runQueued() {
+    if (!queuedQ || busy) return false;
+    var nq = queuedQ; queuedQ = null;
+    setTimeout(function () { ask(nq.q, nq.alts); }, 150);
+    return true;
+  }
   function afterAnswer(preview) {
     if (state === "speaking") setState("idle");
+    if (runQueued()) return;
     if (preview || !settings.handsfree || busy || !panel.hidden) return;
     if (dict && !autoBlocked) {
       /* let the echo die out first, so he does not hear himself */
@@ -1639,6 +1684,7 @@
         reveal();
         if (err && err.code === "not_granted") { muteBtn.hidden = true; voiceRow.hidden = true; tts = null; }
         if (state === "speaking") setState("idle");
+        if (err && err.code === "tts_error") { setStatus("stVoice", false, "Balsas: nepavyko ištarti (" + ((err && err.message) || "klaida") + "), atsakymas parašytas tekstu"); afterAnswer(preview); }
       });
       return;
     }
@@ -1860,8 +1906,16 @@
     }
   };
 
-  function ask(question) {
-    if (busy || !question) return;
+  var queuedQ = null;
+  function ask(question, alts) {
+    if (!question) return;
+    if (busy) {
+      /* never drop what he said: answer it right after the current one */
+      queuedQ = { q: question, alts: alts };
+      input.value = "";
+      addMsg("note", "Išgirdau: „" + question + "“. Atsakysiu iškart po šito.");
+      return;
+    }
     input.value = "";
     var greet = talk.querySelector(".greet");
     if (greet) greet.remove();
@@ -1883,6 +1937,11 @@
     var messages = recent.map(function (m, i) {
       return i === 0 ? { role: m.role, content: lead + "\n\n" + m.content } : { role: m.role, content: m.content };
     });
+    if (alts && alts.length) {
+      var lastM = messages[messages.length - 1];
+      lastM.content += "\n\n(Pastaba tau, ne žmogaus žodžiai: balso atpažinimas buvo nevisai tikras, kiti galimi variantai: „" + alts.slice(0, 3).join("“, „") +
+        "“. Suprask prasmę iš konteksto; jei visai neaišku, trumpai perklausk.)";
+    }
 
     var bubble = addMsg("bot", "…");
     var answer = "";
@@ -1928,6 +1987,7 @@
       busy = false; sendBtn.disabled = false;
       if (!narrow() && !listening) { try { input.focus(); } catch (e) {} }
       if (answer) speak(answer, false); else setState("idle");
+      if (queuedQ && !answer) runQueued();
     });
   }
 
