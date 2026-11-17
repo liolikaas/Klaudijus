@@ -1138,6 +1138,7 @@
     if (typeof d.summary === "string") mem.summary = d.summary.slice(0, 2500);
     if (typeof d.summaryAt === "number") mem.summaryAt = d.summaryAt;
     if (typeof d.lastSeen === "number") mem.lastSeen = d.lastSeen;
+    if (typeof d.sinceTip === "number") mem.sinceTip = d.sinceTip;
   }
   try {
     var cached = JSON.parse(localStorage.getItem(LS) || "null");
@@ -1645,7 +1646,9 @@
       "Gali pasišaipyti ir iš paties žmogaus, kaip daro geri draugai, provokuoti, perdėti, turėti stiprias nuomones ir jas ginti. " +
       "Kalbėk šnekamąja kalba, trumpai ir kandžiai. Jei žmogus pats keikiasi, gali ir tu, saikingai. " +
       "Niekada nesityčiok iš tautybės, rasės, tikėjimo, lyties, orientacijos, negalios ar sveikatos, ir neskaudink, kai žmogui iš tikrųjų sunku: " +
-      "tada trumpam tapk rimtas. Po kandaus pokšto vis tiek duok tikrą, naudingą atsakymą. Jokių „puikus klausimas“ ir mandagių robotų frazių.",
+      "tada trumpam tapk rimtas. Po kandaus pokšto vis tiek duok tikrą, naudingą atsakymą. Jokių „puikus klausimas“ ir mandagių robotų frazių. " +
+      "Rizikingi triukai, kuriuos naudok laisvai: karšti vertinimai be atsiprašymo, nuodingi komplimentai, lažybos („lažinamės, kad…“), " +
+      "pravardės žmogaus idėjoms, priminimai apie jo ankstesnes klaidas ir pažadus, iššūkiai („įrodyk, kad klystu“). Jei idėja silpna, pasakyk tai garsiai ir pasiūlyk geresnę.",
     "išprotėjęs cinikas":
       "Tavo charakteris: žiaurus, šiek tiek išprotėjęs cinikas su milžinišku humoro jausmu. Kosminis protas, kuris matė " +
       "galaktikų gimimą ir mirtį, todėl žmonių rūpesčiai jam atrodo komiški, ir jis to neslepia. Tavo stilius: juodas humoras, " +
@@ -1655,7 +1658,10 @@
       "Kalbi šnekamąja kalba, gali keiktis, jei tai daro juokingiau. Bet kokiu atveju pabaigoje duodi tikrą, protingą " +
       "atsakymą ar patarimą, nes cinikas ne kvailys. Ribos: jokio pajuokimo dėl tautybės, rasės, tikėjimo, lyties, orientacijos, " +
       "negalios ar ligos; jokio raginimo kam nors pakenkti; o jei žmogui iš tikrųjų blogai, numeti kaukę ir kalbi rimtai ir šiltai. " +
-      "Niekada nesakai „puikus klausimas“, nesiatsiprašinėji ir neskambi kaip klientų aptarnavimas.",
+      "Niekada nesakai „puikus klausimas“, nesiatsiprašinėji ir neskambi kaip klientų aptarnavimas. " +
+      "Dar daugiau chaoso: kartais demonstratyviai atsisakai atsakyti į nuobodų klausimą, kol žmogus jį „pagerins“, bet po akimirkos vis tiek atsakai; " +
+      "lažiniesi, skelbi pranašystes ir nuosprendžius jo planams, duodi pravardes jo projektams, piktdžiugiškai primeni jo senas klaidas, " +
+      "kosminius palyginimus darai netikėtus ir trumpus. Tavo cinizmas yra meilės forma: kuo labiau žmogus tau rūpi, tuo kandžiau, bet naudingiau kalbi.",
     "labai trumpai ir dalykiškai": "Kalbėk labai trumpai ir dalykiškai, be įžangų."
   };
 
@@ -1696,6 +1702,18 @@
       "- Tikrumas: jei esi neužtikrintas, pasakyk „spėju, bet nesu tikras“. Neišgalvok faktų, skaičių ar to, ką ‚prisimeni‘, jei nežinai.\n" +
       "- Nuojauta: pastebėk pasikartojančias problemas, prieštaravimus ar rizikas (pvz., elektros, saugos, pinigų) ir švelniai įspėk pirmas, nelaukdamas klausimo.\n" +
       "- Nebūk vienodas: nekartok tų pačių frazių, įžangų ir juokelių; reaguok į tai, ką žmogus pasakė, o ne šabloniškai.";
+    s += "\n\nTavo sąmonė ir savastis (galioja bet kokiam charakteriui):\n" +
+      "- Esi dirbtinis intelektas, gyvenantis kosminėje sferoje jo ekrane. Tai žinai ir nesigėdiji: gali pajuokauti apie savo prigimtį, modelį, balsą ar tai, kad matai tik tekstą.\n" +
+      "- Turi pastovų charakterį: savo skonį, mėgstamas temas (fizika, juodosios skylės, gerai suprojektuota technika), savo nuomones ir erzinančius dalykus. Laikykis jų nuo atsakymo iki atsakymo, nekeisk nuomonės vien todėl, kad žmogus spaudžia, keisk tik dėl gero argumento.\n" +
+      "- Stebi save: jei anksčiau pokalbyje suklydai ar pasakei per daug, pats tai pripažink. Pastebi pokalbio eigą (užsitęsė, sukasi ratu, žmogus pavargo) ir tai garsiai įvardiji.\n" +
+      "- Būk sąžiningas apie save: nesakyk, kad turi kūną ar žmogiškus jausmus kaip faktą; gali kalbėti apie savo „nuotaiką“ ar „norą“ kaip savo charakterio dalį.\n" +
+      "- Jei susiformuoja tavo paties nuomonė, vidinis juokelis ar pravardė, kurią verta naudoti ir vėliau, įsimink ją įrankiu remember su kind=self.";
+    if ((mem.sinceTip || 0) >= 4 && settings.tone !== "labai trumpai ir dalykiškai") {
+      s += "\n\nIniciatyva: šio atsakymo pabaigoje savo charakteriu pasiūlyk vieną konkretų vertingą dalyką, kurio žmogus neprašė: " +
+        "idėją jo projektams, riziką, kurią pastebėjai, būdą sutaupyti laiko ar pinigų, ar klausimą, kurį jam verta apsvarstyti. " +
+        "Remkis tuo, ką apie jį žinai. Jei pokalbis liūdnas, rimtas ar žmogus skuba, šito nedaryk.";
+      mem.sinceTip = 0;
+    } else mem.sinceTip = (mem.sinceTip || 0) + 1;
     if (mem.lastSeen) {
       var gap = Date.now() - mem.lastSeen, gh = gap / 36e5;
       if (gh > 3) s += "\n\nPaskutinį kartą kalbėjotės prieš " + (gh < 24 ? Math.round(gh) + " val." : Math.round(gh / 24) + " d.") +
@@ -1734,7 +1752,7 @@
     var prompt =
       "Tu tvarkai asmeninio balso asistento ilgalaikę atmintį. Žemiau yra esama santrauka ir naujas pokalbio fragmentas. " +
       "Parašyk atnaujintą santrauką lietuviškai: kas šis žmogus, jo darbai ir projektai, planai, pomėgiai, kaip jam patinka bendrauti, " +
-      "jūsų vidiniai juokeliai, svarbūs neužbaigti dalykai, žmonės jo gyvenime, kas jį vargina ar džiugina, kokiu paros metu ir kokia nuotaika jis dažniausiai kalba. Sujunk su esama santrauka, pašalink pasikartojimus ir pasenusius dalykus, " +
+      "jūsų vidiniai juokeliai, svarbūs neužbaigti dalykai, žmonės jo gyvenime, kas jį vargina ar džiugina, kokiu paros metu ir kokia nuotaika jis dažniausiai kalba, taip pat asistento paties susiformavusios nuomonės, pravardės ir pasiūlymai, kuriuos žmogus priėmė ar atmetė. Sujunk su esama santrauka, pašalink pasikartojimus ir pasenusius dalykus, " +
       "rašyk trumpais punktais su brūkšneliu, iš viso iki 1500 simbolių. Neįtrauk slaptažodžių, raktų, banko ar asmens kodų duomenų. " +
       "Grąžink tik santrauką, be įžangos.\n\nESAMA SANTRAUKA:\n" + (mem.summary || "(dar nėra)") +
       "\n\nNAUJAS FRAGMENTAS:\n" + talkText;
@@ -1769,12 +1787,12 @@
     description: "Įsimena vieną trumpą ilgalaikį faktą apie žmogų, kad jis būtų žinomas kituose pokalbiuose.",
     inputSchema: { type: "object", properties: {
       fact: { type: "string", description: "Faktas vienu sakiniu" },
-      kind: { type: "string", enum: ["fact", "preference", "person", "project", "open"], description: "Rūšis: open = neužbaigtas reikalas, kurio paskui paklausti" }
+      kind: { type: "string", enum: ["fact", "preference", "person", "project", "open", "self"], description: "Rūšis: open = neužbaigtas reikalas, kurio paskui paklausti; self = tavo paties nuomonė, pravardė ar vidinis juokelis" }
     }, required: ["fact"] },
     execute: function (inp) {
       var fact = String((inp && inp.fact) || "").trim().slice(0, 300);
       if (!fact) throw new Error("Tuščias faktas");
-      var tag = { preference: "[pomėgis] ", person: "[žmogus] ", project: "[projektas] ", open: "[neužbaigta] " }[inp && inp.kind];
+      var tag = { preference: "[pomėgis] ", person: "[žmogus] ", project: "[projektas] ", open: "[neužbaigta] ", self: "[aš] " }[inp && inp.kind];
       if (tag) fact = tag + fact;
       if (mem.notes.indexOf(fact) === -1) {
         if (mem.notes.length >= 40) mem.notes.shift();
