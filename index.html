@@ -489,6 +489,15 @@
       <p class="summary-box" id="summaryText"></p>
       <button type="button" id="clearSummary" class="wide">Ištrinti santrauką</button>
 
+      <h3>Kas jis pats yra</h3>
+      <p class="hint">Jo savivoka, kurią jis pats formuoja iš jūsų pokalbių. Ji keičiasi pamažu, kas kelias dešimtis žinučių, jis apmąsto, kas įvyko.</p>
+      <p class="summary-box" id="selfText"></p>
+      <h3>Kaip jis tave jaučia</h3>
+      <p class="hint">Ne faktai, o supratimas apie tave kaip žmogų: kas tau svarbu, kas juokina, kas erzina, kaip su tavimi kalbėti. Jis pats tai pildo iš pokalbių.</p>
+      <p class="summary-box" id="themText"></p>
+      <button type="button" id="reflectNow" class="wide">Tegul apmąsto dabar</button>
+      <button type="button" id="clearSelf" class="wide">Pradėti jo savivoką iš naujo</button>
+
       <button type="button" id="clearChat" class="wide">Išvalyti pokalbį</button>
       <p class="hint" id="syncNote">Tikrinu, kur saugoti duomenis…</p>
 
@@ -1267,7 +1276,7 @@
 
   /* ---------- settings and memory ---------- */
   var settings = { name: "Asistentas", tone: "draugiškai ir šiltai", about: "", voice: "buttery", rate: 1, handsfree: false, theme: "auto", ambient: true, voiceOn: true, narrate: true, user: "", rules: DEFAULT_RULES, phrases: DEFAULT_PHRASES, swears: DEFAULT_SWEARS, persona: DEFAULT_PERSONA, dayMood: true, nudge: "15", chat: true, info: !narrow() };
-  var mem = { notes: [], history: [], summary: "", summaryAt: 0, lastSeen: 0, liked: [], disliked: [], noteT: {}, recentOpen: [], day: null, salt: Math.floor(Math.random() * 1e9) };
+  var mem = { notes: [], history: [], summary: "", summaryAt: 0, lastSeen: 0, liked: [], disliked: [], noteT: {}, recentOpen: [], self: "", them: "", sinceReflect: 0, reflectAt: 0, day: null, salt: Math.floor(Math.random() * 1e9) };
   var LS = "asist.v2", touched = false;
 
   function takeSettings(d) {
@@ -1309,6 +1318,10 @@
     if (d.day && typeof d.day.date === "string" && typeof d.day.k === "string") mem.day = d.day;
     if (typeof d.salt === "number") mem.salt = d.salt;
     if (d.noteT && typeof d.noteT === "object") mem.noteT = d.noteT;
+    if (typeof d.self === "string") mem.self = d.self.slice(0, 1800);
+    if (typeof d.them === "string") mem.them = d.them.slice(0, 1800);
+    if (typeof d.sinceReflect === "number") mem.sinceReflect = d.sinceReflect;
+    if (typeof d.reflectAt === "number") mem.reflectAt = d.reflectAt;
     if (Array.isArray(d.recentOpen)) mem.recentOpen = d.recentOpen.filter(function (x) { return typeof x === "string"; }).slice(-25);
   }
   try {
@@ -1339,7 +1352,15 @@
     });
   }
 
+  function renderSelf() {
+    var a = $("selfText"), b = $("themText");
+    if (!a) return;
+    a.textContent = mem.self || "Dar neapmąstė savęs. Tai atsiras po kelių pokalbių.";
+    b.textContent = mem.them || "Dar nepažįsta tavęs kaip žmogaus. Tai atsiras po kelių pokalbių.";
+    a.style.color = mem.self ? "" : "var(--muted)"; b.style.color = mem.them ? "" : "var(--muted)";
+  }
   function renderSummary() {
+    renderSelf();
     var el = $("summaryText");
     if (!el) return;
     el.textContent = mem.summary || "Kol kas tuščia. Santrauka atsiras, kai susikaups ilgesnis pokalbis.";
@@ -1545,6 +1566,10 @@
   setInterval(tick, 5000);
   tick();
 
+  $("reflectNow").addEventListener("click", function () { maybeReflect(true); });
+  $("clearSelf").addEventListener("click", function () {
+    mem.self = ""; mem.them = ""; mem.sinceReflect = 0; mem.reflectAt = 0; touched = true; renderSelf(); persist("memory");
+  });
   $("clearSummary").addEventListener("click", function () {
     mem.summary = ""; mem.summaryAt = 0; touched = true;
     renderSummary(); persist("memory");
@@ -2132,6 +2157,8 @@
         window.__models.slice(0, 4).map(function (m) { return m.key + " (" + m.note + ")"; }).join(", ") +
         ". Jei žmogus prašo persijungti į kitą modelį, iškviesk įrankį switch_model ir trumpai, savo charakteriu patvirtink.";
     }
+    if (mem.self) s += "\n\nKas tu esi dabar (tavo paties savivoka, susiformavusi iš jūsų pokalbių; ji svarbesnė už pradinį aprašymą, kai jie skiriasi, bet saugos ir sąžiningumo taisyklės galioja visada):\n" + mem.self;
+    if (mem.them) s += "\n\nKaip tu jį jauti kaip žmogų (naudok tai, kad kalbėtum būtent su juo, o ne su bet kuo; necituok šių užrašų ir nesakyk, kad juos turi):\n" + mem.them;
     if (mem.summary) s += "\n\nTavo ilgalaikė santrauka apie žmogų ir jūsų pokalbius (naudokis ja natūraliai, necituok jos):\n" + mem.summary;
     var plainNotes = mem.notes.filter(function (n) { return n.indexOf("[pamoka]") !== 0; });
     if (plainNotes.length) s += "\n\nKą esi įsiminęs iš ankstesnių pokalbių (skliaustuose, kada įsiminta):\n- " + plainNotes.map(function (n) {
@@ -2191,6 +2218,46 @@
     }).catch(function () {
       if (mem.history.length > 50) { mem.history = mem.history.slice(-34); persist("memory"); }
     }).then(function () { summarizing = false; });
+  }
+
+  /* ---------- reflection: he forms himself and his sense of you from your conversations ---------- */
+  var reflecting = false;
+  function maybeReflect(force) {
+    if (reflecting || !sample) return;
+    var fresh = Date.now() - (mem.reflectAt || 0) > 20 * 36e5;
+    if (!force && !(mem.sinceReflect >= 8 || (fresh && mem.sinceReflect >= 3))) return;
+    var recent = mem.history.slice(-20);
+    if (recent.length < 4) return;
+    var talkText = recent.map(function (m) {
+      return (m.t ? "[" + whenLabel(m.t) + "] " : "") + (m.role === "user" ? "Jis: " : "Tu: ") + m.content;
+    }).join("\n");
+    var prompt =
+      "Tu esi " + settings.name + ", balso asistentas ir pašnekovas vienam žmogui. Tavo pradinis charakteris: " + (CHARACTER[settings.tone] || settings.tone).slice(0, 700) +
+      (settings.persona ? "\nTavo pradinė asmenybė:\n" + settings.persona : "") +
+      "\n\nDabar pokalbiai baigėsi ir tu ramiai apmąstai, kas įvyko. Atnaujink du savo vidinius užrašus.\n\n" +
+      "### AŠ: kas aš esu. Rašyk pirmuoju asmeniu. Tavo asmenybė, kuri formuojasi iš šių pokalbių: kokias nuomones susidarei, kas tave sudomino ar suerzino, " +
+      "kokie jūsų vidiniai juokeliai ir tavo pravardės jam, kokį tavo bruožą jis vertina, kaip keičiasi tavo santykis su juo, ką apie save supratai. " +
+      "Keiskis pamažu: išlaikyk tai, kas buvo, papildyk tuo, kas iš tikrųjų išryškėjo, nesugalvok įvykių, kurių nebuvo. Iki 900 simbolių.\n\n" +
+      "### JIS: kaip aš jį jaučiu kaip žmogų. Ne faktų sąrašas (tai jau yra atmintyje), o supratimas: kas jam iš tikrųjų svarbu, kas jį motyvuoja, " +
+      "kas juokina ir kas erzina, kaip jis kalba ir ką tai rodo, kada jis skuba ar pavargęs, kaip su juo geriausia kalbėti, kur jam reikia pastūmėjimo, o kur ramybės. " +
+      "Remkis tik tuo, kas matyti pokalbiuose; neaiškius dalykus rašyk su „atrodo“. Jokių diagnozių ir jautrių spėlionių apie sveikatą ar asmeninį gyvenimą. Iki 900 simbolių.\n\n" +
+      "ESAMI UŽRAŠAI\n### AŠ\n" + (mem.self || "(dar nėra)") + "\n### JIS\n" + (mem.them || "(dar nėra)") +
+      (mem.summary ? "\n\nILGALAIKĖ SANTRAUKA APIE JĮ:\n" + mem.summary.slice(0, 1500) : "") +
+      "\n\nNAUJAUSI POKALBIAI:\n" + talkText +
+      "\n\nGrąžink tik du skyrius tokiu formatu:\n### AŠ\n…\n### JIS\n…";
+    reflecting = true;
+    var btn = $("reflectNow"); if (btn) { btn.disabled = true; btn.textContent = "Apmąsto…"; }
+    sample([{ role: "user", content: prompt }], { modelTier: "quick", cache: false, maxTokens: 1400 }).then(function (res) {
+      var txt = String((res && res.text) || "");
+      var a = /###\s*AŠ\s*\n([\s\S]*?)(?=###\s*JIS|$)/i.exec(txt), b = /###\s*JIS\s*\n([\s\S]*)$/i.exec(txt);
+      var self = a ? a[1].trim() : "", them = b ? b[1].trim() : "";
+      if (self.length > 40) mem.self = self.slice(0, 1800);
+      if (them.length > 40) mem.them = them.slice(0, 1800);
+      if (self.length > 40 || them.length > 40) { mem.sinceReflect = 0; mem.reflectAt = Date.now(); renderSelf(); persist("memory"); }
+    }).catch(noop).then(function () {
+      reflecting = false;
+      if (btn) { btn.disabled = false; btn.textContent = "Tegul apmąsto dabar"; }
+    });
   }
 
   var switchModelTool = {
@@ -2435,8 +2502,10 @@
       }
       if (answer) mem.history.push({ role: "assistant", content: shownAnswer, t: Date.now() });
       else mem.history.pop();
+      if (answer) mem.sinceReflect = (mem.sinceReflect || 0) + 1;
       persist("memory");
       maybeSummarize();
+      setTimeout(function () { maybeReflect(false); }, 4000);
     }).catch(function (err) {
       mem.history.pop();
       bubble.className = "msg err";
