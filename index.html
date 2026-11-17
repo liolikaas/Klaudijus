@@ -2746,7 +2746,8 @@
   var PERS = 3.4;
   var PS = new Float32Array(N), PL = new Float32Array(N), PSP = new Float32Array(N);
 
-  /* parallax: tilting the phone (or moving the mouse) turns the scene a little, layers shift by depth */
+  /* parallax: tilting the phone (or moving the mouse) shifts only the surroundings, layer by layer;
+     the sphere and its ring keep their own motion */
   var par = { x: 0, y: 0, tx: 0, ty: 0, b0: null, g0: null };
   window.addEventListener("deviceorientation", function (e) {
     if (e.beta == null || e.gamma == null) return;
@@ -2787,7 +2788,7 @@
     bodies.push({ x: sx, y: sy, vx: vx / vl * sp, vy: vy / vl * sp, front: Math.random() < 0.6, trail: [], c: Math.random(), age: 0, f: 1 });
   }
   function updateBodies(cx, cy, R, dt) {
-    var G = R * R * R * 2.6 * (1 + level * 0.8), rs = R * 0.95;
+    var G = R * R * R * 2.6, rs = R * 0.95;
     for (var i = bodies.length - 1; i >= 0; i--) {
       var b = bodies[i];
       b.age += dt;
@@ -2800,7 +2801,6 @@
       }
       b.trail.push(b.x, b.y, b.f);
       if (b.trail.length > 150) b.trail.splice(0, 3);
-      if (b.front && b.r < R * 0.97) { firePulse(0.7); bodies.splice(i, 1); continue; }
       if (b.age > 45 || (b.age > 4 && b.r > Math.max(W, H) * 0.9)) bodies.splice(i, 1);
     }
   }
@@ -2829,10 +2829,10 @@
   /* space-time: a sheet that sags under the sphere's mass (deeper while he speaks or thinks) */
   function drawSpacetime(cx, cy, R, t) {
     var pitch = 0.42 + par.y * 0.12, cp = Math.cos(pitch), sp = Math.sin(pitch), P = 4.6;
-    var depthK = 1.1 * (1 + level * 0.7 + (state === "thinking" ? 0.3 : 0));
+    var depthK = 1.1;
     var col = blend(blend(ICE, TEAL, 0.4), [255, 255, 255], 0.25);
     function pt(u, v) {
-      var r2 = u * u + v * v, Y = 0.35 + depthK / Math.sqrt(r2 + 0.55) + 0.04 * Math.sin(Math.sqrt(r2) * 2.2 - t * 1.4) * level;
+      var r2 = u * u + v * v, Y = 0.35 + depthK / Math.sqrt(r2 + 0.55) + 0.03 * Math.sin(Math.sqrt(r2) * 1.6 - t * 0.5);
       var yy = Y * cp - v * sp, z = Y * sp + v * cp, sc = P / (P + z);
       if (P + z < 0.6) return null;
       return [cx + (u - par.x * 0.5) * R * sc, cy + yy * R * sc, Math.sqrt(r2), z];
@@ -3004,8 +3004,8 @@
   };
 
   function drawDust(front, cx, cy, R, t, tint) {
-    var roll = -0.32 + par.x * 0.08, tiltC = Math.cos(roll), tiltS = Math.sin(roll);
-    var incl = Math.max(0.12, Math.min(0.42, 0.26 + par.y * 0.12)), cInc = Math.sqrt(1 - incl * incl);
+    var tiltC = Math.cos(-0.32), tiltS = Math.sin(-0.32);
+    var incl = 0.26, cInc = Math.sqrt(1 - incl * incl);
     for (var i = 0; i < dust.length; i++) {
       var d = dust[i];
       var sinA = Math.sin(d.a);
@@ -3096,7 +3096,7 @@
     var coreCol = blend(ICE, EMBER, warmth);
 
     /* stars, bent by the gravitational lens around the sphere */
-    LX = cx; LY = cy; LE = R * (1.85 + level * 0.15);
+    LX = cx; LY = cy; LE = R * 1.9;
     for (var i = 0; i < stars.length; i++) {
       var s = stars[i];
       var sx = ((s.x + t * 0.006 * s.d) % 1) * W - par.x * s.d * 28, sy = s.y * H - par.y * s.d * 22;
@@ -3141,7 +3141,7 @@
       for (var k = 0; k < nb.puffs.length; k++) {
         var pf = nb.puffs[k];
         var L = lens(nx0 + pf.dx * W * 1.6, nb.y * H + pf.dy * H - par.y * 12);
-        var pcol = blend(ncol, pf.shift > 0.7 ? EMBER : VIOLET, pf.shift * 0.35 + warmth * 0.3);
+        var pcol = blend(ncol, pf.shift > 0.7 ? EMBER : VIOLET, pf.shift * 0.35);
         var stretch = Math.min(5, L.st), sz = pf.size * (W < 500 ? 0.8 : 1.2);
         ctx.globalAlpha = Math.min(0.9, pf.a * 0.38 * Math.min(2.2, Math.sqrt(stretch)));
         ctx.save();
@@ -3180,11 +3180,11 @@
     /* nebula */
     for (var i = 0; i < clouds.length; i++) {
       var c = clouds[i];
-      var ang = c.a + t * c.sp * (calm ? 0.3 : 1 + warmth);
+      var ang = c.a + t * c.sp * (calm ? 0.3 : 1);
       var nx = cx + Math.cos(ang) * c.r * R, ny = cy + Math.sin(ang) * c.r * R * 0.7;
-      var nr = c.size * R * (1 + level * 0.3);
+      var nr = c.size * R;
       var ng = ctx.createRadialGradient(nx, ny, 0, nx, ny, nr);
-      ng.addColorStop(0, rgba(c.c, (0.17 + level * 0.14) * glow));
+      ng.addColorStop(0, rgba(c.c, 0.18));
       ng.addColorStop(1, rgba(c.c, 0));
       ctx.fillStyle = ng;
       ctx.fillRect(nx - nr, ny - nr, nr * 2, nr * 2);
@@ -3194,7 +3194,7 @@
     ctx.lineWidth = 1;
     for (var i = 0; i < threads.length; i++) {
       var th = threads[i];
-      ctx.strokeStyle = rgba(blend(th.c, EMBER, warmth * 0.5), 0.18 + level * 0.3);
+      ctx.strokeStyle = rgba(th.c, 0.2);
       ctx.beginPath();
       for (var k = 0; k <= 140; k++) {
         var u = k / 140;
@@ -3217,7 +3217,7 @@
       for (var k = 0; k < 48; k++) {
         var a0 = k / 48 * 6.283, a1r = (k + 1.05) / 48 * 6.283;
         var shimmer = 0.55 + 0.45 * Math.sin(a0 * 3 + t * 0.7) * Math.sin(a0 * 5 - t * 0.45);
-        ctx.strokeStyle = rgba(blend(ICE, EMBER, warmth * 0.7), (base + level * base * 1.5) * shimmer);
+        ctx.strokeStyle = rgba(ICE, base * 1.3 * shimmer);
         ctx.beginPath(); ctx.arc(cx, cy, ringR, a0, a1r); ctx.stroke();
       }
     }
@@ -3306,8 +3306,8 @@
     coreFlash = Math.max(0, coreFlash - dt * 1.8);
 
     /* sphere: real perspective, lit from the upper left, a moving glint, pulse waves over it */
-    var yaw = spin + par.x * 0.35, cs = Math.cos(yaw), sn = Math.sin(yaw);
-    var tilt = 0.35 + par.y * 0.25, ct = Math.cos(tilt), st = Math.sin(tilt);
+    var cs = Math.cos(spin), sn = Math.sin(spin);
+    var tilt = 0.35, ct = Math.cos(tilt), st = Math.sin(tilt);
     var Hx = LIx, Hy = LIy, Hz = LIz + 1, Hl = Math.sqrt(Hx * Hx + Hy * Hy + Hz * Hz); Hx /= Hl; Hy /= Hl; Hz /= Hl;
     for (var i = 0; i < N; i++) {
       var p = pts[i];
@@ -3356,7 +3356,7 @@
     ctx.globalCompositeOperation = "lighter";
 
     /* inner shell */
-    var ics = Math.cos(-spin * 1.6 + par.x * 0.2), isn = Math.sin(-spin * 1.6 + par.x * 0.2), itl = -0.5 + par.y * 0.15, ict = Math.cos(itl), ist = Math.sin(itl);
+    var ics = Math.cos(-spin * 1.6), isn = Math.sin(-spin * 1.6), itl = -0.5, ict = Math.cos(itl), ist = Math.sin(itl);
     for (var i = 0; i < M; i++) {
       var p = inner[i];
       var r0 = 0.56 + level * 0.18 * Math.sin(p.y * 8 + t * 4);
