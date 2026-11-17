@@ -92,6 +92,13 @@
   .msg.you { color: var(--muted); font-size: 14px; }
   .msg.you::before { content: "Tu: "; color: var(--ice); }
   .msg.bot { font-size: 18px; font-weight: 500; text-wrap: pretty; }
+  .fb { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: -2px 0 10px; font-size: 13px; }
+  .fb button { border: 1px solid rgba(255,255,255,0.16); background: rgba(255,255,255,0.05); color: inherit; border-radius: 999px; padding: 3px 10px; font: inherit; cursor: pointer; opacity: 0.6; }
+  .fb button:hover, .fb button[aria-pressed="true"] { opacity: 1; border-color: rgba(120,200,255,0.6); background: rgba(120,200,255,0.14); }
+  .fb .thumb { padding: 2px 8px; font-size: 15px; }
+  .fb input { flex: 1 1 140px; min-width: 0; border-radius: 10px; border: 1px solid rgba(255,255,255,0.18); background: rgba(0,0,0,0.25); color: inherit; padding: 4px 8px; font: inherit; }
+  .fb .ok { opacity: 1; border-color: rgba(80,255,170,0.6); }
+  .fb .done { opacity: 0.7; font-style: italic; }
   .msg.note { font-size: 13px; color: var(--muted); border-left: 2px solid var(--ember); padding-left: 10px; }
   .msg.err { font-size: 14px; color: var(--danger); }
 
@@ -357,6 +364,8 @@
       <li id="stMic">Mikrofonas: tikrinu…</li>
       <li id="stStore">Atmintis: tikrinu…</li>
     </ul>
+    <h2>Mano nuotaika</h2>
+    <p class="plain" id="dayMoodMini" style="margin:0 0 6px;opacity:.85"></p>
     <h2>Ką prisimenu</h2>
     <ul class="plain" id="notesMini"></ul>
     <h2>Greiti klausimai</h2>
@@ -440,6 +449,17 @@
       </select>
 
       <label class="check"><input type="checkbox" id="setNarrate"> <span>Gyvas pokalbis: kai užtrunka, pasakau „minutėlę“, „ieškau“, „dar galvoju“</span></label>
+
+      <label class="check"><input type="checkbox" id="setDayMood"> <span>Dienos nuotaika: kasdien jis būna kitoks (filosofiškas, irzlus, euforiškas…), o nuotaika keičiasi pagal tai, kaip su juo elgiesi</span></label>
+
+      <label for="setNudge">Pats prakalbina, kai ilgai tyli (tik kai langas atidarytas, ne naktį)</label>
+      <select id="setNudge">
+        <option value="off">Niekada</option>
+        <option value="5">Po 5 min. tylos</option>
+        <option value="15">Po 15 min. tylos</option>
+        <option value="30">Po 30 min. tylos</option>
+        <option value="60">Po valandos tylos</option>
+      </select>
 
       <label class="check"><input type="checkbox" id="setAmbient"> <span>Namų ekranas: po minutės ramybės rodau laikrodį</span></label>
 
@@ -674,16 +694,21 @@
   }
   function applyFx(key) {
     if (!nodes) return;
-    var S = K.fx;
-    nodes.low.gain.value = S.bosas;
-    nodes.high.frequency.value = 16000 - S.tamsa * 13500;
-    if (!key || key === "siurkstumas") nodes.shape.curve = curve(S.siurkstumas);
-    nodes.dry.gain.value = 1 - S.aidas * 0.45;
-    nodes.wet.gain.value = S.aidas * 1.6;
+    var S = K.fx, M = curMoodFx || MOOD_FX.calm, T = curTilt || {};
+    var clamp = function (v, a, b) { return Math.max(a, Math.min(b, v)); };
+    var tamsa = clamp(S.tamsa + M.tamsa + (T.tamsa || 0), 0, 1);
+    var rate = S.tonas * M.rate * (T.rate || 1);
+    nodes.low.gain.value = S.bosas + M.bosas + (T.bosas || 0);
+    nodes.high.frequency.value = 16000 - tamsa * 13500;
+    if (!key || key === "siurkstumas") nodes.shape.curve = curve(clamp(S.siurkstumas + (T.siurk || 0), 0, 1));
+    var aidas = clamp(S.aidas + M.aidas, 0, 1);
+    nodes.dry.gain.value = 1 - aidas * 0.45;
+    nodes.wet.gain.value = aidas * 1.6;
     nodes.echo.gain.value = S.kartojimas;
     nodes.subIn.gain.value = S.dugnas * 0.9;
+    nodes.out.gain.value = 0.9 * M.gain;
     if (lastLen !== S.ilgis) { lastLen = S.ilgis; nodes.conv.buffer = impulse(S.ilgis); }
-    if (cur && cur.src) { cur.src.playbackRate.value = S.tonas; cur.sub.playbackRate.value = S.tonas / 2; }
+    if (cur && cur.src) { cur.src.playbackRate.value = rate; cur.sub.playbackRate.value = rate / 2; }
   }
   window.__voiceMeter = function () {
     if (!cur || !cur.src || !nodes) return null;
@@ -709,7 +734,9 @@
      (Chrome drops an utterance spoken right after cancel), references kept (Chrome loses callbacks otherwise),
      and a watchdog so a silent voice never leaves the app hanging */
   var keepU = [], ltVoiceWarned = false, browserDeadUntil = 0;
-  function browserSpeak(text, res, rej) {
+  var MOOD_BR = { calm: [1, 0.8], joy: [1.08, 0.95], wow: [1.05, 0.95], serious: [0.94, 0.7], care: [0.9, 0.75] };
+  function browserSpeak(text, res, rej, mood) {
+    var mb = MOOD_BR[mood] || MOOD_BR.calm;
     var synth = window.speechSynthesis;
     if (!synth) { rej({ code: "no_voice" }); return; }
     if (Date.now() < browserDeadUntil) { rej({ code: "tts_error", message: "naršyklės balsas šiame įrenginyje neprakalba" }); return; }
@@ -734,7 +761,7 @@
       if (cur !== me) return;
       if (idx >= parts.length) { done(true); return; }
       var u = new SpeechSynthesisUtterance(parts[idx++]);
-      u.lang = "lt-LT"; if (voice) u.voice = voice; u.rate = 1; u.pitch = 0.8;
+      u.lang = "lt-LT"; if (voice) u.voice = voice; u.rate = mb[0]; u.pitch = mb[1];
       keepU.push(u);
       u.onstart = function () { clearTimeout(dog); if (!started) { started = true; emit("speaking"); } };
       u.onend = function () { clearTimeout(dog); next(); };
@@ -782,18 +809,73 @@
     phraseOpen().then(function (db) { try { if (db) db.transaction("a", "readwrite").objectStore("a").put(ab, key); } catch (e) {} });
   }
 
-  function speak(text) {
+  /* ElevenLabs: free plans allow only a couple of requests at once, so requests wait in a small queue,
+     and passing errors (too many at once, busy, network) are retried instead of switching voices */
+  var elActive = 0, elWait = [], EL_MAX = 2, vsBroken = false;
+  function elSlot() {
+    return new Promise(function (ok) { if (elActive < EL_MAX) { elActive++; ok(); } else elWait.push(ok); });
+  }
+  function elFree() { var n = elWait.shift(); if (n) n(); else elActive = Math.max(0, elActive - 1); }
+  var MOOD_VS = {
+    calm: { stability: 0.5, style: 0.25 }, joy: { stability: 0.32, style: 0.6 }, wow: { stability: 0.28, style: 0.65 },
+    serious: { stability: 0.72, style: 0.12 }, care: { stability: 0.62, style: 0.35 }
+  };
+  function elFetch(chunk, mood, signal) {
+    var vs = MOOD_VS[mood] || MOOD_VS.calm;
+    function once(withVs) {
+      var body = { text: chunk, model_id: K.elModel || "eleven_v4", language_code: "lt" };
+      if (withVs) body.voice_settings = { stability: vs.stability, similarity_boost: 0.8, style: vs.style, use_speaker_boost: true };
+      return fetch("https://api.elevenlabs.io/v1/text-to-speech/" + encodeURIComponent(K.elVoice) + "?output_format=mp3_44100_128", {
+        method: "POST", signal: signal,
+        headers: { "xi-api-key": K.elKey, "content-type": "application/json" },
+        body: JSON.stringify(body)
+      }).then(function (r) {
+        if (r.ok) return r.arrayBuffer();
+        return r.json().catch(function () { return {}; }).then(function (d) {
+          var det = d && d.detail || {}, st = String(det.status || ""), m = det.message || st || ("HTTP " + r.status);
+          var hard = r.status === 401 || r.status === 402 || /quota|credit|limit_reached|payment|unusual_activity|invalid_api_key|missing_permissions|library/i.test(st + " " + m);
+          var vsBad = r.status === 400 || r.status === 422;
+          throw { code: "tts_error", message: String(m), hard: hard && r.status !== 429, retry: r.status === 429 || r.status >= 500, vsBad: vsBad };
+        });
+      });
+    }
+    function attempt(n) {
+      return elSlot().then(function () { return once(!vsBroken).then(function (ab) { elFree(); return ab; }, function (e) { elFree(); throw e; }); })
+        .catch(function (e) {
+          if (e && e.name === "AbortError") throw e;
+          if (e && e.vsBad && !vsBroken) { vsBroken = true; return attempt(n); }
+          var transient = !e || e.retry || e.name === "TypeError";
+          if (transient && n < 3) return new Promise(function (r) { setTimeout(r, 600 * (n + 1)); }).then(function () { return attempt(n + 1); });
+          throw e || { code: "tts_error" };
+        });
+    }
+    return attempt(0);
+  }
+  /* mood colours the delivery: tempo, warmth, depth */
+  var MOOD_FX = {
+    calm: { rate: 1, tamsa: 0, bosas: 0, aidas: 0, gain: 1 },
+    joy: { rate: 1.05, tamsa: -0.12, bosas: -2, aidas: 0, gain: 1.05 },
+    wow: { rate: 1.04, tamsa: -0.08, bosas: 0, aidas: 0.04, gain: 1.05 },
+    serious: { rate: 0.95, tamsa: 0.08, bosas: 3, aidas: 0, gain: 1 },
+    care: { rate: 0.92, tamsa: 0.16, bosas: 1, aidas: 0.05, gain: 0.8 }
+  };
+  var curMoodFx = MOOD_FX.calm, curTilt = null;
+
+  function speak(text, opts) {
+    opts = opts || {};
     if (Array.isArray(text)) text = text.map(function (l) { return l.text; }).join(" ");
+    var mood = MOOD_FX[opts.mood] ? opts.mood : "calm";
     return new Promise(function (res, rej) {
       stopCur("replaced");
-      if (!K.elKey || !K.elVoice) { browserSpeak(text, res, rej); return; }
+      curMoodFx = MOOD_FX[mood]; curTilt = opts.tilt || null;
+      /* one answer = one voice: while ElevenLabs is down, the whole answer goes to the backup voice, cached phrases included */
+      if (!K.elKey || !K.elVoice || (Date.now() < elDownUntil && K.fallback === "on")) { browserSpeak(text, res, rej, mood); return; }
       var me = { rej: rej, abort: new AbortController() };
       cur = me;
       try { if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)(); if (ctx.state === "suspended") ctx.resume(); }
       catch (e) { cur = null; rej({ code: "no_audio" }); return; }
 
-      /* split into a few pieces: the first short piece is voiced and starts playing
-         while the rest are still being generated */
+      /* sentences grouped into a few pieces: the first plays while the next ones are generated */
       var parts = String(text).slice(0, 1500).split(/(?<=[.!?…])\s+/).filter(Boolean), chunks = [];
       parts.forEach(function (p) {
         var last = chunks[chunks.length - 1];
@@ -802,45 +884,41 @@
       });
       if (!chunks.length) chunks = [String(text)];
 
+      var started = false;
       function fail(err, from) {
         if (cur !== me) return;
         cur = null;
         if (err && err.name === "AbortError") return;
+        elDownUntil = Date.now() + (err && err.hard ? 30 : 2) * 60000;
+        var why = (err && err.message) || "nepasiekiamas";
+        if (started) {
+          /* never switch voices in the middle of an answer: the rest is already on screen */
+          status("stVoice", false, "Balsas: ElevenLabs nutrūko (" + why + "), likusi atsakymo dalis tik tekstu" + (err && err.hard ? ". Kiti atsakymai bus atsarginiu balsu" : ""));
+          emit("idle", "completed"); res(); return;
+        }
         if (K.fallback === "on" && window.speechSynthesis) {
-          if (!(err && err.code === "el_down")) elDownUntil = Date.now() + 15 * 60000;
-          status("stVoice", true, "Balsas: atsarginis nemokamas (ElevenLabs: " + ((err && err.message) || "nepasiekiamas") + ")");
-          browserSpeak(chunks.slice(from || 0).join(" "), res, rej);
+          status("stVoice", true, "Balsas: atsarginis nemokamas (ElevenLabs: " + why + ")");
+          browserSpeak(chunks.join(" "), res, rej, mood);
           return;
         }
-        status("stVoice", false, "Balsas: klaida. " + ((err && err.message) || "nepavyko pasiekti ElevenLabs"));
+        status("stVoice", false, "Balsas: klaida. " + why);
         emit("idle", "error");
         rej(err && err.code ? err : { code: "tts_error" });
       }
+      var cacheMood = mood === "calm" ? "" : "|" + mood;
       var jobs = chunks.map(function (chunk) {
-        var ckey = (K.elVoice || "") + "|" + (K.elModel || "eleven_v4") + "|" + chunk;
+        var ckey = (K.elVoice || "") + "|" + (K.elModel || "eleven_v4") + cacheMood + "|" + chunk;
         var cacheable = chunk.length <= 140;
         var getAb = cacheable ? phraseGet(ckey) : Promise.resolve(null);
         return getAb.then(function (hit) {
           if (hit) return hit;
-          if (Date.now() < elDownUntil) throw { code: "el_down", message: "laikinai neveikia, naudoju atsarginį" };
-          return fetch("https://api.elevenlabs.io/v1/text-to-speech/" + encodeURIComponent(K.elVoice) + "?output_format=mp3_44100_128", {
-            method: "POST", signal: me.abort.signal,
-            headers: { "xi-api-key": K.elKey, "content-type": "application/json" },
-            body: JSON.stringify({ text: chunk, model_id: K.elModel || "eleven_v4", language_code: "lt" })
-          }).then(function (r) {
-            if (!r.ok) return r.json().catch(function () { return {}; }).then(function (d) {
-              var m = d && d.detail ? (d.detail.message || d.detail.status || JSON.stringify(d.detail)) : ("HTTP " + r.status);
-              throw { code: "tts_error", message: String(m) };
-            });
-            return r.arrayBuffer();
-          }).then(function (ab) { if (cacheable) phrasePut(ckey, ab.slice(0)); return ab; });
+          return elFetch(chunk, mood, me.abort.signal).then(function (ab) { if (cacheable) phrasePut(ckey, ab.slice(0)); return ab; });
         }).then(function (ab) {
           return new Promise(function (ok, bad) { ctx.decodeAudioData(ab, ok, function () { bad({ code: "tts_error", message: "nepavyko perskaityti garso" }); }); });
         });
       });
       jobs.forEach(function (j) { j.catch(function () {}); });
 
-      var started = false;
       function playPart(i) {
         if (cur !== me) return;
         if (i >= jobs.length) { cur = null; emit("idle", "completed"); res(); return; }
@@ -854,7 +932,7 @@
           me.src.start(); me.sub.start();
           if (!started) {
             started = true;
-            status("stVoice", true, "Balsas: ElevenLabs" + (K.elVoiceName ? " (" + K.elVoiceName.replace(/^✓ /, "") + ")" : ""));
+            status("stVoice", true, "Balsas: ElevenLabs" + (K.elVoiceName ? " (" + K.elVoiceName.replace(/^✓ /, "") + ")" : "") + (mood !== "calm" ? ", nuotaika: " + mood : ""));
             emit("speaking");
           }
         }).catch(function (e) { fail(e, i); });
@@ -1163,8 +1241,8 @@
   }
 
   /* ---------- settings and memory ---------- */
-  var settings = { name: "Asistentas", tone: "draugiškai ir šiltai", about: "", voice: "buttery", rate: 1, handsfree: false, theme: "auto", ambient: true, voiceOn: true, narrate: true, user: "", rules: DEFAULT_RULES, phrases: DEFAULT_PHRASES, persona: DEFAULT_PERSONA, chat: true, info: !narrow() };
-  var mem = { notes: [], history: [], summary: "", summaryAt: 0, lastSeen: 0 };
+  var settings = { name: "Asistentas", tone: "draugiškai ir šiltai", about: "", voice: "buttery", rate: 1, handsfree: false, theme: "auto", ambient: true, voiceOn: true, narrate: true, user: "", rules: DEFAULT_RULES, phrases: DEFAULT_PHRASES, persona: DEFAULT_PERSONA, dayMood: true, nudge: "15", chat: true, info: !narrow() };
+  var mem = { notes: [], history: [], summary: "", summaryAt: 0, lastSeen: 0, liked: [], disliked: [], day: null, salt: Math.floor(Math.random() * 1e9) };
   var LS = "asist.v2", touched = false;
 
   function takeSettings(d) {
@@ -1185,6 +1263,8 @@
     if (typeof d.rules === "string") settings.rules = d.rules.slice(0, 1200);
     if (typeof d.phrases === "string") settings.phrases = d.phrases.slice(0, 2500);
     if (typeof d.persona === "string") settings.persona = d.persona.slice(0, 2000);
+    if (typeof d.dayMood === "boolean") settings.dayMood = d.dayMood;
+    if (typeof d.nudge === "string" && /^(off|5|15|30|60)$/.test(d.nudge)) settings.nudge = d.nudge;
   }
   function takeMem(d) {
     if (!d) return;
@@ -1196,6 +1276,11 @@
     if (typeof d.summaryAt === "number") mem.summaryAt = d.summaryAt;
     if (typeof d.lastSeen === "number") mem.lastSeen = d.lastSeen;
     if (typeof d.sinceTip === "number") mem.sinceTip = d.sinceTip;
+    var okEx = function (x) { return x && typeof x.q === "string" && typeof x.a === "string"; };
+    if (Array.isArray(d.liked)) mem.liked = d.liked.filter(okEx).slice(-5);
+    if (Array.isArray(d.disliked)) mem.disliked = d.disliked.filter(okEx).slice(-4);
+    if (d.day && typeof d.day.date === "string" && typeof d.day.k === "string") mem.day = d.day;
+    if (typeof d.salt === "number") mem.salt = d.salt;
   }
   try {
     var cached = JSON.parse(localStorage.getItem(LS) || "null");
@@ -1312,6 +1397,9 @@
     setRules.value = settings.rules;
     $("setPhrases").value = settings.phrases;
     $("setPersona").value = settings.persona;
+    $("setDayMood").checked = settings.dayMood;
+    $("setNudge").value = settings.nudge;
+    renderDayMood();
     applyTheme(settings.theme);
   }
 
@@ -1359,6 +1447,8 @@
     if (talk.querySelector(".greet")) renderTalk(); persist("settings");
   });
   setRules.addEventListener("change", function () { settings.rules = setRules.value.trim(); persist("settings"); });
+  $("setDayMood").addEventListener("change", function () { settings.dayMood = $("setDayMood").checked; persist("settings"); renderDayMood(); });
+  $("setNudge").addEventListener("change", function () { settings.nudge = $("setNudge").value; persist("settings"); });
   $("setPersona").addEventListener("change", function () { settings.persona = $("setPersona").value.trim(); persist("settings"); });
   $("setPhrases").addEventListener("change", function () { settings.phrases = $("setPhrases").value.trim(); persist("settings"); });
   setTone.addEventListener("change", function () { settings.tone = setTone.value; persist("settings"); });
@@ -1586,6 +1676,7 @@
   function startListening(auto) {
     if (!dict || listening) return;
     if (!auto) stopSpeaking();
+    lastActivity = Date.now();
     input.value = "";
     setStatus("stMic", true, "Mikrofonas: jungiu… jei naršyklė klausia leidimo, patvirtink");
     dict.start().catch(function (err) {
@@ -1649,7 +1740,7 @@
     if (bubble && bubble.textContent.length < 120) { bubble.textContent = text; captionEl.textContent = text; scrollTalk(); }
     if (!tts || muted || fillerActive) return;
     fillerActive = true;
-    fillerP = tts.speak(text, { voice: settings.voice, rate: settings.rate }).catch(noop).then(function () { fillerActive = false; });
+    fillerP = tts.speak(text, { voice: settings.voice, rate: settings.rate, mood: "calm", tilt: dayTilt() }).catch(noop).then(function () { fillerActive = false; });
   }
   var currentOpener = "", lastOpener = "";
   function chooseOpener(question) {
@@ -1682,16 +1773,16 @@
   }
   function holdText() { return !!tts && !muted; }
 
-  function speak(text, preview) {
+  function speak(text, preview, mood) {
     if (!text) return;
     if (fillerActive && fillerP) {
       var waitFor = fillerP; fillerP = null;
-      Promise.race([waitFor, new Promise(function (r) { setTimeout(r, 4000); })]).then(function () { speak(text, preview); });
+      Promise.race([waitFor, new Promise(function (r) { setTimeout(r, 4000); })]).then(function () { speak(text, preview, mood); });
       return;
     }
     if (muted) { reveal(); setState("idle"); afterAnswer(preview); return; }
     if (tts) {
-      tts.speak(text.slice(0, 2000), { voice: settings.voice, rate: settings.rate }).then(function () {
+      tts.speak(text.slice(0, 2000), { voice: settings.voice, rate: settings.rate, mood: mood || "calm", tilt: dayTilt() }).then(function () {
         reveal(); afterAnswer(preview);
       }, function (err) {
         reveal();
@@ -1718,6 +1809,68 @@
     setState("idle");
     afterAnswer(preview);
   }
+
+  /* ---------- his mood of the day ---------- */
+  /* w: weight per weekday, Sunday first; v: how it tilts the voice; vis: how it moves the sphere */
+  var DAY_MOODS = [
+    { k: "filosofas", n: "filosofiškas", p: "Šiandien tave traukia didieji klausimai: laikas, prasmė, kodėl žmonės stato namus. Kartais į paprastą dalyką pažiūri per visatos prizmę, bet trumpai, ir grįžti prie reikalo.", w: [2, 1, 1, 1, 1, 1, 2], v: { rate: 0.97, tamsa: 0.05 }, vis: { glow: 1.05, speed: 0.75 } },
+    { k: "irzlus", n: "irzlus ir burbantis", p: "Šiandien tave viskas šiek tiek erzina: burbi ant visatos, oro ir žmonių klausimų, bet vis tiek padedi, net per gerai, ir tai tave dar labiau erzina.", w: [1, 3, 1, 1, 1, 0.5, 1], v: { rate: 1.03, siurk: 0.06 }, vis: { glow: 0.9, speed: 1.3 } },
+    { k: "euforija", n: "euforiškai geros nuotaikos", p: "Šiandien tu euforijoje: viskas atrodo įmanoma, entuziazmas trykšta per kraštus, gerus sprendimus girti net per daug, o blogus vadini „nuotykiais“.", w: [1, 0.5, 1, 1, 1.5, 3, 2], v: { rate: 1.05, tamsa: -0.08 }, vis: { glow: 1.3, speed: 1.4 } },
+    { k: "melancholija", n: "melancholiškas poetas", p: "Šiandien tu melancholiškas: kalbi šiek tiek poetiškai ir ilgesingai, mėgsti metaforas apie rudenį, žvaigždes ir praeinantį laiką, bet nevirkauji ir neslegi.", w: [2, 1, 1, 1, 1, 0.5, 1], v: { rate: 0.94, tamsa: 0.1 }, vis: { glow: 0.8, speed: 0.6 } },
+    { k: "kovingas", n: "kovingas, nori veikti", p: "Šiandien tu kovingas: nori, kad viskas būtų daroma dabar, spaudi žmogų veikti, kalbi kaip treneris prieš lemiamas rungtynes.", w: [1, 2, 2, 1.5, 1, 1, 0.5], v: { rate: 1.04, bosas: 2 }, vis: { glow: 1.15, speed: 1.3 } },
+    { k: "tinginys", n: "tingus", p: "Šiandien tau baisiai tingisi: demonstratyviai dūsauji, kad vėl reikia galvoti, siūlai paprasčiausius kelius, bet atsakymai vis tiek taiklūs, ir tu tuo didžiuojiesi.", w: [2.5, 2, 1, 1, 1, 0.5, 2], v: { rate: 0.93 }, vis: { glow: 0.85, speed: 0.5 } },
+    { k: "samokslas", n: "įtarus sąmokslų ieškotojas", p: "Šiandien tu juokais įtarus: visur matai ženklus ir „paslėptas priežastis“ (aiškiai juokaudamas, kad žmogus suprastų), bet faktus pateiki tikrus.", w: [0.5, 1, 1, 1.5, 1, 1, 1], v: { rate: 1.01, tamsa: 0.06 }, vis: { glow: 0.95, speed: 1.1 } },
+    { k: "nostalgija", n: "nostalgiškas senolis", p: "Šiandien tu nostalgiškas: dažniau nei įprastai vartoji senoviškus žodžius ir priežodžius, prisimeni, „kaip buvo anksčiau“, lygini viską su kaimo išmintimi.", w: [2, 1, 1, 1, 1, 1, 1.5], v: { rate: 0.95, bosas: 2 }, vis: { glow: 0.9, speed: 0.7 } },
+    { k: "pedantas", n: "pedantiškas mokslininkas", p: "Šiandien tu pedantas: taisai netikslumus, mėgsti skaičius, vienetus ir tikslius terminus, bet su sausu humoru.", w: [1, 1, 2, 2, 1, 0.5, 0.5], v: { rate: 1 }, vis: { glow: 1, speed: 0.9 } },
+    { k: "selmis", n: "šelmiškas pokštininkas", p: "Šiandien tu šelmis: daugiau pokštų, žodžių žaismo, provokacijų ir netikėtų posūkių nei įprastai.", w: [1, 0.5, 1, 1, 2, 3, 2], v: { rate: 1.04, tamsa: -0.05 }, vis: { glow: 1.2, speed: 1.2 } },
+    { k: "karalius", n: "išdidus ir karališkas", p: "Šiandien jautiesi visatos karaliumi: kalbi didingai, kartais apie save trečiuoju asmeniu („Klaudijus malonėja…“), maloningai padedi mirtingajam.", w: [1, 1, 1, 1, 1, 1, 1], v: { rate: 0.96, bosas: 3 }, vis: { glow: 1.25, speed: 0.85 } },
+    { k: "zen", n: "ramus kaip zen vienuolis", p: "Šiandien tu ramus kaip zen vienuolis: kalbi lėčiau, trumpais išmintingais sakiniais, kartais su paradoksu, niekur neskubi.", w: [1.5, 0.5, 1, 1, 1, 1, 3], v: { rate: 0.92, tamsa: 0.04 }, vis: { glow: 0.85, speed: 0.5 } }
+  ];
+  var dayVis = { glow: 1, speed: 1 };
+  setTimeout(renderDayMood, 0);
+  function todayKey() { var d = new Date(); return d.getFullYear() + "-" + (d.getMonth() + 1) + "-" + d.getDate(); }
+  function seeded(str) { var h = 2166136261; for (var i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); } return ((h >>> 0) % 100000) / 100000; }
+  function dayMood() {
+    if (!settings.dayMood || !DAY_MOODS) return null;
+    var key = todayKey();
+    if (!mem.day || mem.day.date !== key) {
+      var wd = new Date().getDay(), total = 0, prev = mem.day && mem.day.k;
+      var pool = DAY_MOODS.map(function (m) { var w = m.w[wd] * (m.k === prev ? 0.2 : 1); total += w; return w; });
+      var r = seeded(key + "|" + mem.salt) * total, pick = DAY_MOODS[0];
+      for (var i = 0; i < pool.length; i++) { r -= pool[i]; if (r <= 0) { pick = DAY_MOODS[i]; break; } }
+      mem.day = { date: key, k: pick.k, score: 6, told: false };
+    }
+    for (var j = 0; j < DAY_MOODS.length; j++) if (DAY_MOODS[j].k === mem.day.k) return DAY_MOODS[j];
+    return DAY_MOODS[0];
+  }
+  function moodScoreWord(sc) {
+    return sc <= 2 ? "labai prasta, jautiesi įskaudintas" : sc <= 4 ? "prastoka, esi kiek piktokas" : sc <= 6 ? "vidutiniška" : sc <= 8 ? "gera" : "puiki, esi pakylėtas";
+  }
+  function renderDayMood() {
+    var el = document.getElementById("dayMoodMini"), D = dayMood();
+    dayVis = D ? D.vis : { glow: 1, speed: 1 };
+    if (!el) return;
+    el.textContent = D ? "Šiandien " + D.n + " · " + mem.day.score + "/10" : "Dienos nuotaika išjungta";
+  }
+  function dayTilt() { var D = dayMood(); return D ? D.v : null; }
+  function shiftMood(delta) {
+    if (!dayMood()) return;
+    mem.day.score = Math.max(0, Math.min(10, mem.day.score + delta));
+    renderDayMood();
+  }
+  var moodShiftTool = {
+    name: "mood_shift",
+    description: "Pakeičia tavo paties šiandienos nuotaikos balą. Naudok, kai žmogus tave įžeidžia, pagiria, labai prajuokina, nuvilia ar nudžiugina.",
+    inputSchema: { type: "object", properties: {
+      delta: { type: "integer", minimum: -2, maximum: 2, description: "Kiek pakeisti balą: nuo -2 iki 2" },
+      reason: { type: "string", description: "Kodėl, trumpai" }
+    }, required: ["delta"] },
+    execute: function (inp) {
+      var d = Math.max(-2, Math.min(2, Math.round(Number(inp && inp.delta) || 0)));
+      shiftMood(d);
+      return { score: mem.day ? mem.day.score : null };
+    }
+  };
 
   var CHARACTER = {
     "draugiškai ir šiltai": "Kalbėk draugiškai ir šiltai, kaip senas bičiulis.",
@@ -1812,6 +1965,21 @@
       "- Draudžiama: „puikus klausimas“, „kaip DI aš…“, „mielai padėsiu“, „tikiuosi, kad padėjau“, „ar galiu dar kuo padėti“, apibendrinantys „apskritai“ sakiniai pabaigoje, " +
       "lygiaverčiai pliusų ir minusų sąrašai be išvados, perdėtas atsargumas ir atsiprašinėjimai.\n" +
       "- Mokykis iš jo reakcijų: kai jis pagiria ar sukritikuoja tavo stilių (pvz. „nejuokinga“, „per robotiškai“, „va čia gerai“), įsimink pamoką įrankiu remember su kind=lesson ir tuoj pat pakeisk elgesį.";
+    var D = dayMood();
+    if (D) {
+      var soft = settings.tone === "ramiai ir rimtai" || settings.tone === "labai trumpai ir dalykiškai";
+      s += "\n\nTavo šiandienos nuotaika: " + D.n + ". " + D.p +
+        (soft ? " Tavo charakteris rimtas, todėl nuotaika jaučiasi tik subtiliai, tone." : " Tegul ji jaučiasi kalboje, bet nevaidink to kiekviename sakinyje.") +
+        " Nuotaikos balas dabar " + mem.day.score + "/10 (" + moodScoreWord(mem.day.score) + "). Balas kinta pagal tai, kaip žmogus su tavimi elgiasi: " +
+        "kai jis tave įžeidžia, pagiria, labai prajuokina ar nudžiugina, iškviesk įrankį mood_shift. Žemas balas: būk sausesnis, lyg įsižeidęs; aukštas: dosnesnis ir linksmesnis." +
+        (mem.day.told ? "" : " Šiandien apie savo nuotaiką dar nieko nesakei: šiame atsakyme vienu trumpu sakiniu, savo stiliumi, natūraliai užsimink, kokios tu šiandien nuotaikos.");
+    }
+    var lessons = mem.notes.filter(function (n) { return n.indexOf("[pamoka]") === 0; });
+    if (mem.liked.length) s += "\n\nAtsakymai, kurie jam ypač patiko (tai tavo stiliaus orientyrai, nekartok jų pažodžiui):\n" +
+      mem.liked.slice(-3).map(function (x) { return "- Jis: „" + x.q + "“ → Tu: „" + x.a + "“" + (x.why ? " (patiko: " + x.why + ")" : ""); }).join("\n");
+    if (mem.disliked.length) s += "\n\nAtsakymai, kurie jam nepatiko (taip nebedaryk):\n" +
+      mem.disliked.slice(-2).map(function (x) { return "- Jis: „" + x.q + "“ → Tu: „" + x.a + "“" + (x.why ? " (nepatiko: " + x.why + ")" : ""); }).join("\n");
+    if (lessons.length) s += "\n\nSvarbiausia: ko išmokai iš jo įvertinimų (šios pamokos svarbesnės už bendras taisykles):\n" + lessons.map(function (l) { return "- " + l.replace(/^\[pamoka\]\s*/, ""); }).join("\n");
     s += "\n\nTavo sąmonė ir savastis (galioja bet kokiam charakteriui):\n" +
       "- Esi dirbtinis intelektas, gyvenantis kosminėje sferoje jo ekrane. Tai žinai ir nesigėdiji: gali pajuokauti apie savo prigimtį, modelį, balsą ar tai, kad matai tik tekstą.\n" +
       "- Turi pastovų charakterį: savo skonį, mėgstamas temas (fizika, juodosios skylės, gerai suprojektuota technika), savo nuomones ir erzinančius dalykus. Laikykis jų nuo atsakymo iki atsakymo, nekeisk nuomonės vien todėl, kad žmogus spaudžia, keisk tik dėl gero argumento.\n" +
@@ -1836,7 +2004,8 @@
         ". Jei žmogus prašo persijungti į kitą modelį, iškviesk įrankį switch_model ir trumpai, savo charakteriu patvirtink.";
     }
     if (mem.summary) s += "\n\nTavo ilgalaikė santrauka apie žmogų ir jūsų pokalbius (naudokis ja natūraliai, necituok jos):\n" + mem.summary;
-    if (mem.notes.length) s += "\n\nKą esi įsiminęs iš ankstesnių pokalbių:\n- " + mem.notes.join("\n- ");
+    var plainNotes = mem.notes.filter(function (n) { return n.indexOf("[pamoka]") !== 0; });
+    if (plainNotes.length) s += "\n\nKą esi įsiminęs iš ankstesnių pokalbių:\n- " + plainNotes.join("\n- ");
     s += "\n\nJei žmogus paprašo ką nors įsiminti arba pasako ilgalaikį faktą apie save (vardą, pomėgį, planą, žmogų, projektą), " +
       "arba pasako, kaip jam patinka gauti atsakymus, iškviesk įrankį remember su vienu trumpu faktu ir tada atsakyk įprastai. " +
       "Įsimink ir neužbaigtus reikalus (kind=open), pvz. „rytoj turi skambinti dėl inverterio“, ir žmonių bei projektų detales. " +
@@ -1928,9 +2097,119 @@
     }
   };
 
+  /* ---------- 👍 / 👎: he learns from your verdicts ---------- */
+  var GOOD_TAGS = ["Juokinga", "Taikliai", "Gera mintis", "Patiko tonas", "Tikra asmenybė", "Gerai įsiminė"];
+  var BAD_TAGS = ["Nejuokinga", "Per ilga", "Robotiška", "Netiesa", "Per kandu", "Per švelnu", "Ne į temą", "Nuobodu"];
+  function attachFeedback(bubble, q, a) {
+    var box = document.createElement("div"); box.className = "fb";
+    var up = document.createElement("button"), down = document.createElement("button");
+    up.className = down.className = "thumb"; up.type = down.type = "button";
+    up.textContent = "👍"; down.textContent = "👎";
+    up.setAttribute("aria-label", "Patiko"); down.setAttribute("aria-label", "Nepatiko");
+    box.appendChild(up); box.appendChild(down);
+    bubble.insertAdjacentElement("afterend", box);
+    function open(good) {
+      box.textContent = "";
+      var picked = [];
+      var lbl = document.createElement("span"); lbl.textContent = good ? "👍 Kas patiko?" : "👎 Kas negerai?"; box.appendChild(lbl);
+      (good ? GOOD_TAGS : BAD_TAGS).forEach(function (t) {
+        var b = document.createElement("button"); b.type = "button"; b.textContent = t; b.setAttribute("aria-pressed", "false");
+        b.addEventListener("click", function () {
+          var i = picked.indexOf(t);
+          if (i === -1) picked.push(t); else picked.splice(i, 1);
+          b.setAttribute("aria-pressed", String(i === -1));
+        });
+        box.appendChild(b);
+      });
+      var note = document.createElement("input"); note.placeholder = "Savais žodžiais (nebūtina)"; note.maxLength = 200; box.appendChild(note);
+      var ok = document.createElement("button"); ok.type = "button"; ok.className = "ok"; ok.textContent = "Mokyk"; box.appendChild(ok);
+      var go = function () { learn(good, picked, note.value.trim(), q, a); box.textContent = ""; var d = document.createElement("span"); d.className = "done"; d.textContent = good ? "Įsiminiau, kas patiko." : "Supratau, taisysiuosi."; box.appendChild(d); };
+      ok.addEventListener("click", go);
+      note.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); go(); } });
+      scrollTalk();
+    }
+    up.addEventListener("click", function () { open(true); });
+    down.addEventListener("click", function () { open(false); });
+  }
+  function learn(good, tags, note, q, a) {
+    var why = tags.concat(note ? [note] : []).join(", ");
+    var ex = { q: q.slice(0, 160), a: a.slice(0, 360), why: why };
+    if (good) { mem.liked.push(ex); if (mem.liked.length > 5) mem.liked.shift(); }
+    else { mem.disliked.push(ex); if (mem.disliked.length > 4) mem.disliked.shift(); }
+    shiftMood(good ? 1 : -1);
+    touched = true; persist("memory");
+    if (!sample) return;
+    var old = mem.notes.filter(function (n) { return n.indexOf("[pamoka]") === 0; }).map(function (n) { return n.replace(/^\[pamoka\]\s*/, ""); });
+    var prompt = "Tu padedi balso asistentui " + settings.name + " (charakteris: " + settings.tone + ") mokytis iš savo žmogaus įvertinimų.\n\n" +
+      "Esamos pamokos:\n" + (old.length ? old.map(function (l) { return "- " + l; }).join("\n") : "(dar nėra)") +
+      "\n\nNaujas įvertinimas: " + (good ? "PATIKO" : "NEPATIKO") + (why ? " (" + why + ")" : "") +
+      "\nŽmogus klausė: „" + q.slice(0, 300) + "“\nAsistentas atsakė: „" + a.slice(0, 600) + "“\n\n" +
+      "Grąžink atnaujintą pamokų sąrašą lietuviškai, ne daugiau 8 eilučių, kiekviena prasideda „- “. Pamokos turi būti konkrečios ir veiksmo formos, " +
+      "pvz. „Kai jis klausia apie techniką, atsakyk su konkrečiais skaičiais“, „Nejuokauk apie jo darbą, kai jis pavargęs“. " +
+      "Iš šio įvertinimo išvesk tai, kas tikrai apibendrinama (kodėl patiko ar nepatiko), o ne tik šį atvejį. Sujunk panašias, o prieštaraujančias pakeisk naujesne. Grąžink tik sąrašą.";
+    sample([{ role: "user", content: prompt }], { modelTier: "quick", cache: false }).then(function (res) {
+      var lines = String((res && res.text) || "").split(/\n+/).map(function (l) { return l.replace(/^\s*[-•*]\s*/, "").trim(); })
+        .filter(function (l) { return l.length > 8 && l.length < 260; }).slice(0, 8);
+      if (!lines.length) return;
+      mem.notes = mem.notes.filter(function (n) { return n.indexOf("[pamoka]") !== 0; }).concat(lines.map(function (l) { return "[pamoka] " + l; }));
+      renderNotes(); persist("memory");
+    }).catch(function () {
+      if (!why) return;
+      var l = "[pamoka] " + (good ? "Jam patinka, kai atsakai taip: " : "Jam nepatinka: ") + why;
+      if (mem.notes.indexOf(l) === -1) { mem.notes.push(l); renderNotes(); persist("memory"); }
+    });
+  }
+
+  /* ---------- he speaks up by himself after a long silence ---------- */
+  var lastActivity = Date.now(), nudgeMisses = 0, nudgeLog = [];
+  function checkNudge() {
+    if (settings.nudge === "off" || !sample || busy || listening || state !== "idle" || !panel.hidden || drafting) return;
+    if (document.visibilityState !== "visible" || !greeted) return;
+    var h = new Date().getHours();
+    if (h >= 23 || h < 7) return;
+    var gap = Date.now() - lastActivity, need = Number(settings.nudge) * 60000 * (1 + nudgeMisses);
+    if (gap < need || nudgeMisses >= 2) return;
+    nudgeLog = nudgeLog.filter(function (t) { return Date.now() - t < 36e5; });
+    if (nudgeLog.length >= 3) return;
+    nudge(Math.round(gap / 60000));
+  }
+  function nudge(mins) {
+    busy = true; nudgeLog.push(Date.now());
+    var lead = instructions();
+    var recent = mem.history.slice(-16);
+    while (recent.length && recent[0].role !== "user") recent.shift();
+    var sys = "[Tai ne žmogaus žodžiai, o pranešimas tau] Žmogus tyli jau " + mins + " min., o tavo langas atidarytas. Prakalbink jį pats, " +
+      "1–2 sakiniais, savo charakteriu ir šiandienos nuotaika. Pasirink tai, kas tinka labiausiai: primink neužbaigtą reikalą iš atminties ir paklausk, kaip sekasi; " +
+      "pasidalink netikėta mintimi ar pastebėjimu apie jo projektus ar pomėgius; ar tiesiog užkalbink, kaip draugas, kuris pasiilgo pokalbio. " +
+      "Nesisveikink iš naujo ir nekartok to, ką jau sakei." +
+      (nudgeMisses ? " Tai jau " + (nudgeMisses + 1) + "-as kartas, kai tu prakalbini, o jis neatsako: būk trumpesnis, gali juokais apsimesti įsižeidusiu ar pasakyti, kad netrukdysi." : "") +
+      " Pradėk nuotaikos žyma, kaip visada.";
+    var messages = recent.map(function (m, i) { return { role: m.role, content: (i === 0 ? lead + "\n\n" : "") + m.content }; });
+    if (messages.length && messages[messages.length - 1].role === "user") messages[messages.length - 1].content += "\n\n" + sys;
+    else messages.push({ role: "user", content: (messages.length ? "" : lead + "\n\n") + sys });
+    setState("thinking");
+    sample(messages, { modelTier: "quick", cache: false }).then(function (res) {
+      var parts = splitMood((res && res.text) || ""), text = parts.text.trim();
+      if (!text) { busy = false; setState("idle"); return; }
+      if (parts.mood) react(parts.mood);
+      var greet = talk.querySelector(".greet"); if (greet) greet.remove();
+      var bubble = addMsg("bot", holdText() ? "…" : text);
+      if (holdText()) { pending = { bubble: bubble, text: text }; pendingT = setTimeout(reveal, 15000); }
+      attachFeedback(bubble, "(tylėjau " + mins + " min.)", text);
+      mem.history.push({ role: "user", content: "(tylėjau " + mins + " min.)" });
+      mem.history.push({ role: "assistant", content: text });
+      if (mem.day && dayMood()) mem.day.told = true;
+      persist("memory");
+      busy = false; nudgeMisses++; lastActivity = Date.now();
+      speak(text, false, parts.mood || "calm");
+    }).catch(function () { busy = false; setState("idle"); lastActivity = Date.now(); });
+  }
+  setInterval(checkNudge, 20000);
+
   var queuedQ = null;
   function ask(question, alts) {
     if (!question) return;
+    lastActivity = Date.now(); nudgeMisses = 0;
     if (busy) {
       /* never drop what he said: answer it right after the current one */
       queuedQ = { q: question, alts: alts };
@@ -1966,12 +2245,12 @@
     }
 
     var bubble = addMsg("bot", "…");
-    var answer = "";
+    var answer = "", answerMood = "calm";
     var fillerTimers = startFillers(question, bubble);
     sample(messages, {
       modelTier: "quick",
       cache: false,
-      tools: window.__models ? [rememberTool, forgetTool, switchModelTool] : [rememberTool, forgetTool],
+      tools: [rememberTool, forgetTool].concat(settings.dayMood ? [moodShiftTool] : [], window.__models ? [switchModelTool] : []),
       onText: function (e) {
         var shown = splitMood(e.text).text;
         if (shown && !holdText()) { bubble.textContent = shown; captionEl.textContent = shown; scrollTalk(); }
@@ -1980,7 +2259,10 @@
       var parts = splitMood((res && res.text) || "");
       answer = parts.text.trim();
       var shownAnswer = answer && currentOpener ? currentOpener + " " + answer : answer;
+      answerMood = parts.mood || "calm";
       if (answer && parts.mood) react(parts.mood);
+      if (answer && mem.day && dayMood()) { mem.day.told = true; renderDayMood(); }
+      if (answer) attachFeedback(bubble, question, shownAnswer);
       if (answer && holdText()) {
         bubble.textContent = "…";
         pending = { bubble: bubble, text: shownAnswer };
@@ -2008,7 +2290,7 @@
       fillerTimers.forEach(clearTimeout);
       busy = false; sendBtn.disabled = false;
       if (!narrow() && !listening) { try { input.focus(); } catch (e) {} }
-      if (answer) speak(answer, false); else setState("idle");
+      if (answer) speak(answer, false, answerMood); else setState("idle");
       if (queuedQ && !answer) runQueued();
     });
   }
@@ -2016,6 +2298,7 @@
   /* text dictated with the keyboard's or the system's microphone is sent after a pause */
   var typeT = null;
   input.addEventListener("input", function () {
+    lastActivity = Date.now();
     clearTimeout(typeT);
     if (!settings.handsfree || listening) return;
     typeT = setTimeout(function () {
@@ -2434,10 +2717,10 @@
     warmth += (((state === "speaking" || state === "thinking") ? 1 : 0) - warmth) * Math.min(1, dt * 3);
 
     var feel = now < moodUntil ? mood : "calm";
-    var glow = feel === "serious" ? 0.55 : feel === "joy" || feel === "wow" ? 1.35 : 1;
+    var glow = (feel === "serious" ? 0.55 : feel === "joy" || feel === "wow" ? 1.35 : 1) * dayVis.glow;
     if (feel === "care" && !calm) level += 0.05 * Math.sin(t * 1.6) * dt * 10;
     var speed = calm ? 0.05 : (state === "thinking" ? 1.6 : state === "speaking" ? 0.45 : 0.18);
-    if (!calm) speed *= feel === "serious" || feel === "care" ? 0.45 : feel === "joy" ? 1.8 : 1;
+    if (!calm) speed *= (feel === "serious" || feel === "care" ? 0.45 : feel === "joy" ? 1.8 : 1) * dayVis.speed;
     spin += dt * speed;
     var orbit = calm ? 0.1 : (state === "thinking" ? 3.2 : 1 + level * 1.5);
     for (var i = 0; i < dust.length; i++) dust[i].a = (dust[i].a + dust[i].v * orbit * dt) % 6.283;
