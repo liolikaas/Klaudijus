@@ -3448,13 +3448,21 @@
       }
       var ed2 = edges[th.e], s0 = th.dir > 0 ? ed2[0] : ed2[1], s1 = th.dir > 0 ? ed2[1] : ed2[0];
       var hx = PX[s0] + (PX[s1] - PX[s0]) * th.p, hy = PY[s0] + (PY[s1] - PY[s0]) * th.p;
-      var tp = Math.max(0, th.p - 0.35), tx = PX[s0] + (PX[s1] - PX[s0]) * tp, ty = PY[s0] + (PY[s1] - PY[s0]) * tp;
+      var tp = Math.max(0, th.p - 0.45), tx = PX[s0] + (PX[s1] - PX[s0]) * tp, ty = PY[s0] + (PY[s1] - PY[s0]) * tp;
       var dep = (PD[s0] + PD[s1]) / 2;
-      ctx.strokeStyle = rgba(blend(ICE, EMBER, warmth * 0.7), (0.15 + dep * 0.6));
-      ctx.lineWidth = 1.1;
+      var tg = ctx.createLinearGradient(tx, ty, hx, hy);
+      tg.addColorStop(0, rgba(blend(ICE, EMBER, warmth * 0.7), 0));
+      tg.addColorStop(1, rgba(blend(blend(ICE, EMBER, warmth * 0.7), [255, 255, 255], 0.4), Math.min(1, 0.3 + dep * 0.7)));
+      ctx.strokeStyle = tg;
+      ctx.lineWidth = 1.5;
       ctx.beginPath(); ctx.moveTo(tx, ty); ctx.lineTo(hx, hy); ctx.stroke();
-      ctx.fillStyle = "rgba(255,255,255," + (0.3 + dep * 0.7).toFixed(3) + ")";
-      ctx.fillRect(hx - 1.2, hy - 1.2, 2.4, 2.4);
+      /* a small glow around the head */
+      var gsz = 4 + dep * 4;
+      ctx.globalAlpha = 0.35 + dep * 0.5;
+      ctx.drawImage(tintPuff([255, 245, 230]), hx - gsz, hy - gsz, gsz * 2, gsz * 2);
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = "rgba(255,255,255," + Math.min(1, 0.45 + dep * 0.55).toFixed(3) + ")";
+      ctx.fillRect(hx - 1.4, hy - 1.4, 2.8, 2.8);
     }
 
     /* atmosphere: a glowing rim, brighter on the lit side */
