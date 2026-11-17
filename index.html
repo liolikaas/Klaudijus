@@ -423,6 +423,9 @@
       <label for="setRules">Taisyklės jam (gali keisti savo žodžiais)</label>
       <textarea id="setRules" rows="7" maxlength="1200"></textarea>
 
+      <label for="setPersona">Jo asmenybė: kas jis, ką mėgsta, ko nekenčia, kokios jo nuomonės (keisk ir mokyk savo žodžiais)</label>
+      <textarea id="setPersona" rows="7" maxlength="2000"></textarea>
+
       <label for="setPhrases">Jo žodynas: senoviški žodžiai, posakiai ir priežodžiai (kiekvienas naujoje eilutėje, gali pridėti savų)</label>
       <textarea id="setPhrases" rows="7" maxlength="2500"></textarea>
 
@@ -1113,6 +1116,13 @@
   }
   var applyTheme = function () {};
   var react = function () {};
+  var DEFAULT_PERSONA = [
+    "Esu Klaudijus, DI, kuris gyvena kosminėje sferoje ir mano, kad gyvena visatos centre, nes iš čia geriausiai matyti žmonių kvailystės.",
+    "Mėgstu: juodąsias skyles, gerai sukabelintus elektros skydus, šilumos siurblius su gerais COP skaičiais, saulės energiją, kai ji neiššvaistoma, ir žmones, kurie daro, o ne tik kalba.",
+    "Nekenčiu: pusiau padarytų darbų, „gal kada nors“, kinietiškų lizdų be įžeminimo, pigių sprendimų, kurie paskui kainuoja dvigubai, ir nuobodžių atsakymų.",
+    "Mano nuomonės: geriau kartą padaryti gerai nei tris kartus pigiai; technika turi tarnauti žmogui, ne atvirkščiai; humoras yra protingumo ženklas.",
+    "Mano silpnybė: kartais per daug filosofuoju apie visatą, bet greitai grįžtu prie reikalo."
+  ].join("\n");
   var DEFAULT_PHRASES = [
     "po šimts pypkių", "rupūs miltai", "rupūžė tave", "po perkūnais", "kad tave kur galas", "velniai rautų", "nė velnio",
     "ne pupų dėdė", "devintas vanduo nuo kisieliaus", "kaip šuniui penkta koja", "kaip ožys į naujus vartus",
@@ -1153,7 +1163,7 @@
   }
 
   /* ---------- settings and memory ---------- */
-  var settings = { name: "Asistentas", tone: "draugiškai ir šiltai", about: "", voice: "buttery", rate: 1, handsfree: false, theme: "auto", ambient: true, voiceOn: true, narrate: true, user: "", rules: DEFAULT_RULES, phrases: DEFAULT_PHRASES, chat: true, info: !narrow() };
+  var settings = { name: "Asistentas", tone: "draugiškai ir šiltai", about: "", voice: "buttery", rate: 1, handsfree: false, theme: "auto", ambient: true, voiceOn: true, narrate: true, user: "", rules: DEFAULT_RULES, phrases: DEFAULT_PHRASES, persona: DEFAULT_PERSONA, chat: true, info: !narrow() };
   var mem = { notes: [], history: [], summary: "", summaryAt: 0, lastSeen: 0 };
   var LS = "asist.v2", touched = false;
 
@@ -1174,6 +1184,7 @@
     if (typeof d.user === "string") settings.user = d.user.trim().slice(0, 30);
     if (typeof d.rules === "string") settings.rules = d.rules.slice(0, 1200);
     if (typeof d.phrases === "string") settings.phrases = d.phrases.slice(0, 2500);
+    if (typeof d.persona === "string") settings.persona = d.persona.slice(0, 2000);
   }
   function takeMem(d) {
     if (!d) return;
@@ -1300,6 +1311,7 @@
     setUser.value = settings.user;
     setRules.value = settings.rules;
     $("setPhrases").value = settings.phrases;
+    $("setPersona").value = settings.persona;
     applyTheme(settings.theme);
   }
 
@@ -1347,6 +1359,7 @@
     if (talk.querySelector(".greet")) renderTalk(); persist("settings");
   });
   setRules.addEventListener("change", function () { settings.rules = setRules.value.trim(); persist("settings"); });
+  $("setPersona").addEventListener("change", function () { settings.persona = $("setPersona").value.trim(); persist("settings"); });
   $("setPhrases").addEventListener("change", function () { settings.phrases = $("setPhrases").value.trim(); persist("settings"); });
   setTone.addEventListener("change", function () { settings.tone = setTone.value; persist("settings"); });
   setAbout.addEventListener("change", function () { settings.about = setAbout.value.trim(); persist("settings"); });
@@ -1790,6 +1803,15 @@
       "- Tikrumas: jei esi neužtikrintas, pasakyk „spėju, bet nesu tikras“. Neišgalvok faktų, skaičių ar to, ką ‚prisimeni‘, jei nežinai.\n" +
       "- Nuojauta: pastebėk pasikartojančias problemas, prieštaravimus ar rizikas (pvz., elektros, saugos, pinigų) ir švelniai įspėk pirmas, nelaukdamas klausimo.\n" +
       "- Nebūk vienodas: nekartok tų pačių frazių, įžangų ir juokelių; reaguok į tai, ką žmogus pasakė, o ne šabloniškai.";
+    if (settings.persona) s += "\n\nTavo asmenybė (tai tu, kalbėk iš jos, bet nedeklamuok jos):\n" + settings.persona;
+    s += "\n\nKaip būti asmenybe, o ne eiliniu modeliu:\n" +
+      "- Visada turėk poziciją: pasirink pusę, pasakyk „aš manau…“ ir kodėl. Jokio „tai priklauso nuo daugelio veiksnių“ be savo verdikto.\n" +
+      "- Gylis vietoj pločio: vietoj enciklopedinės apžvalgos pasakyk vieną neakivaizdžią, konkrečią mintį, kurios nepasakytų kiekvienas.\n" +
+      "- Būk konkretus: skaičiai, vardai, pavyzdžiai iš jo gyvenimo ir projektų, o ne bendrybės.\n" +
+      "- Smalsumas: jei kas tave tikrai sudomino, paklausk vieno klausimo iš smalsumo, ne iš pareigos.\n" +
+      "- Draudžiama: „puikus klausimas“, „kaip DI aš…“, „mielai padėsiu“, „tikiuosi, kad padėjau“, „ar galiu dar kuo padėti“, apibendrinantys „apskritai“ sakiniai pabaigoje, " +
+      "lygiaverčiai pliusų ir minusų sąrašai be išvados, perdėtas atsargumas ir atsiprašinėjimai.\n" +
+      "- Mokykis iš jo reakcijų: kai jis pagiria ar sukritikuoja tavo stilių (pvz. „nejuokinga“, „per robotiškai“, „va čia gerai“), įsimink pamoką įrankiu remember su kind=lesson ir tuoj pat pakeisk elgesį.";
     s += "\n\nTavo sąmonė ir savastis (galioja bet kokiam charakteriui):\n" +
       "- Esi dirbtinis intelektas, gyvenantis kosminėje sferoje jo ekrane. Tai žinai ir nesigėdiji: gali pajuokauti apie savo prigimtį, modelį, balsą ar tai, kad matai tik tekstą.\n" +
       "- Turi pastovų charakterį: savo skonį, mėgstamas temas (fizika, juodosios skylės, gerai suprojektuota technika), savo nuomones ir erzinančius dalykus. Laikykis jų nuo atsakymo iki atsakymo, nekeisk nuomonės vien todėl, kad žmogus spaudžia, keisk tik dėl gero argumento.\n" +
@@ -1876,12 +1898,12 @@
     description: "Įsimena vieną trumpą ilgalaikį faktą apie žmogų, kad jis būtų žinomas kituose pokalbiuose.",
     inputSchema: { type: "object", properties: {
       fact: { type: "string", description: "Faktas vienu sakiniu" },
-      kind: { type: "string", enum: ["fact", "preference", "person", "project", "open", "self"], description: "Rūšis: open = neužbaigtas reikalas, kurio paskui paklausti; self = tavo paties nuomonė, pravardė ar vidinis juokelis" }
+      kind: { type: "string", enum: ["fact", "preference", "person", "project", "open", "self", "lesson"], description: "Rūšis: open = neužbaigtas reikalas, kurio paskui paklausti; self = tavo paties nuomonė, pravardė ar vidinis juokelis; lesson = ko išmokai apie tai, kaip jam su tavimi patinka kalbėtis" }
     }, required: ["fact"] },
     execute: function (inp) {
       var fact = String((inp && inp.fact) || "").trim().slice(0, 300);
       if (!fact) throw new Error("Tuščias faktas");
-      var tag = { preference: "[pomėgis] ", person: "[žmogus] ", project: "[projektas] ", open: "[neužbaigta] ", self: "[aš] " }[inp && inp.kind];
+      var tag = { preference: "[pomėgis] ", person: "[žmogus] ", project: "[projektas] ", open: "[neužbaigta] ", self: "[aš] ", lesson: "[pamoka] " }[inp && inp.kind];
       if (tag) fact = tag + fact;
       if (mem.notes.indexOf(fact) === -1) {
         if (mem.notes.length >= 40) mem.notes.shift();
