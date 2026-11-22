@@ -559,7 +559,7 @@
   var CFG_KEY = "klaudijus.cfg";
   var K = {
     anKey: "", anModel: "claude-haiku-5-5",
-    elKey: "", elVoice: "", elVoiceName: "", elModel: "eleven_v4", search: "on", fallback: "on",
+    elKey: "", elVoice: "", elVoiceName: "", elModel: "eleven_v4", search: "on", fallback: "on", brUrl: "http://127.0.0.1:8787", brToken: "",
     fx: { tonas: 0.81, bosas: 12, tamsa: 0.3, siurkstumas: 0.15, aidas: 0.1, ilgis: 3, kartojimas: 0.05, dugnas: 0.05 }
   };
   try {
@@ -609,6 +609,40 @@
       syncInputs(); applyFx(); refresh();
     }
   };
+  /* ---------- bridge to Claude Code on this computer ---------- */
+  var brState = { ok: null, info: null, err: "" };
+  function brFetch(path, opts) {
+    opts = opts || {};
+    var base = String(K.brUrl || "").replace(/\/+$/, "");
+    if (!base || !K.brToken) return Promise.reject({ code: "no_bridge", message: "tiltas nenustatytas" });
+    var ctl = new AbortController(), tm = setTimeout(function () { ctl.abort(); }, opts.timeout || 8000);
+    return fetch(base + path, {
+      method: opts.method || "GET", signal: ctl.signal,
+      headers: { "x-klaudijus-token": K.brToken, "content-type": "application/json" },
+      body: opts.body ? JSON.stringify(opts.body) : undefined
+    }).then(function (r) {
+      clearTimeout(tm);
+      return r.json().catch(function () { return {}; }).then(function (d) {
+        if (!r.ok) throw { code: "bridge_" + r.status, message: d.error || ("HTTP " + r.status), data: d };
+        return d;
+      });
+    }, function (e) {
+      clearTimeout(tm);
+      throw { code: "bridge_down", message: "kompiuteris nepasiekiamas (ar paleistas tiltas?)" };
+    });
+  }
+  window.__bridge = {
+    configured: function () { return !!(K.brUrl && K.brToken); },
+    health: function () {
+      return brFetch("/health", { timeout: 4000 }).then(function (d) { brState = { ok: true, info: d, err: "" }; refresh(); return d; },
+        function (e) { brState = { ok: false, info: null, err: e.message }; refresh(); throw e; });
+    },
+    start: function (text, fresh) { return brFetch("/task", { method: "POST", body: { text: text, fresh: !!fresh }, timeout: 10000 }); },
+    poll: function (id, after) { return brFetch("/task/" + encodeURIComponent(id) + "?after=" + (after || 0), { timeout: 8000 }); },
+    stop: function (id) { return brFetch("/task/" + encodeURIComponent(id) + "/stop", { method: "POST" }); },
+    fresh: function () { return brFetch("/new", { method: "POST" }); }
+  };
+
   function status(id, ok, text) { var li = document.getElementById(id); if (li) { li.className = ok ? "ok" : "no"; li.textContent = text; } }
 
   /* ---------- brain: Anthropic Messages API ---------- */
@@ -1006,8 +1040,14 @@
     if (Date.now() < elDownUntil) status("stVoice", true, "Balsas: atsarginis nemokamas (ElevenLabs laikinai neveikia)"); else status("stVoice", !!(K.elKey && K.elVoice), K.elKey && K.elVoice ? "Balsas: ElevenLabs" + (K.elVoiceName ? " (" + K.elVoiceName + ")" : "")
       : "Balsas: naršyklės balsas, kol neįvestas ElevenLabs raktas ir balsas");
     status("stStore", true, "Atmintis: šiame įrenginyje");
+    var brLi = document.getElementById("stBridge"); if (brLi) brLi.hidden = !K.brToken;
+    if (K.brToken) status("stBridge", brState.ok !== false, brState.ok ? "Kompiuteris: prijungtas (" + String(brState.info.workdir || "").split(/[\\/]/).pop() + ")"
+      : brState.ok === false ? "Kompiuteris: " + brState.err : "Kompiuteris: tikrinu ryšį…");
   }
   document.addEventListener("DOMContentLoaded", function () {
+    var st = document.getElementById("stStore");
+    if (st && !document.getElementById("stBridge")) { var li = document.createElement("li"); li.id = "stBridge"; st.parentNode.appendChild(li); }
+    if (K.brToken) setTimeout(function () { window.__bridge.health().catch(function () {}); }, 1500);
     var panel = document.querySelector(".panel-in"), head = document.querySelector(".panel-head");
     if (!panel || !head) return;
     var box = el("section", { "class": "keys" });
@@ -1129,6 +1169,20 @@
     chk2.appendChild(cb2); chk2.appendChild(el("span", null, "Atsarginis nemokamas balsas: kai ElevenLabs kreditai baigiasi ar nėra ryšio, kalbėti naršyklės balsu (prastesnis, bet nemokamas)"));
     box.appendChild(chk2);
 
+    box.appendChild(el("h3", null, "Kompiuteris (Claude Code)"));
+    box.appendChild(el("p", { "class": "hint" }, "Kai tavo kompiuteryje paleistas Klaudijaus tiltas, Klaudijus gali perduoti darbus Claude Code: skaityti ir keisti projekto failus, programuoti, paleisti komandas. Veikia tik šiame kompiuteryje."));
+    field(box, "kBrUrl", "Tilto adresas", "text", K.brUrl, "http://127.0.0.1:8787", function (v) { K.brUrl = v || "http://127.0.0.1:8787"; });
+    field(box, "kBrToken", "Tilto raktas (rodomas tilto lange)", "password", K.brToken, "", function (v) { K.brToken = v; brState = { ok: null, info: null, err: "" }; });
+    var brTest = el("button", { type: "button", "class": "wide" }, "Patikrinti ryšį su kompiuteriu");
+    var brOut = el("p", { "class": "hint" }, "");
+    brTest.addEventListener("click", function () {
+      brOut.textContent = "Tikrinu…";
+      window.__bridge.health().then(function (d) {
+        brOut.textContent = "Prijungta. Aplankas: " + d.workdir + ". Režimas: " + ({ plan: "tik skaito ir planuoja", acceptEdits: "skaito ir keičia failus", bypassPermissions: "viskas be klausimų" }[d.mode] || d.mode) + (d.busy ? ". Dabar dirba." : ".");
+      }, function (e) { brOut.textContent = "Nepavyko: " + e.message + "."; });
+    });
+    box.appendChild(brTest); box.appendChild(brOut);
+
     box.appendChild(el("h3", null, "Balso skambesys"));
     FX.forEach(function (f) {
       var w = el("div", { "class": "fx" });
@@ -1142,7 +1196,7 @@
     syncInputs = function () {
       var set = function (id, v) { var e = document.getElementById(id); if (e) e.value = v; };
       set("kAn", K.anKey); fillModels(); updateChip(); set("kEl", K.elKey);
-      set("kVoiceId", K.elVoice); set("kElModel", K.elModel);
+      set("kVoiceId", K.elVoice); set("kElModel", K.elModel); set("kBrUrl", K.brUrl); set("kBrToken", K.brToken);
       cb.checked = K.search === "on"; cb2.checked = K.fallback === "on";
       fill(K.elVoice ? [{ voice_id: K.elVoice, name: K.elVoiceName || K.elVoice }] : []);
       FX.forEach(function (f) {
@@ -1405,7 +1459,7 @@
   function renderTalk() {
     talk.textContent = "";
     mem.history.slice(-6).forEach(function (m) {
-      if (m.role === "user" && /^\(tylėjau \d+ min\.\)$/.test(m.content)) return;
+      if (m.role === "user" && (/^\(tylėjau \d+ min\.\)$/.test(m.content) || /^\(Claude Code baigė darbą:/.test(m.content))) return;
       addMsg(m.role === "user" ? "you" : "bot", m.content);
     });
     addMsg("bot greet", greeting());
@@ -2150,6 +2204,14 @@
     s += "\n\nLaiko pojūtis: žmogaus žinutės pažymėtos, kada jos pasakytos (pvz. [vakar 21:14]). Naudokis tuo: jei kažkas buvo sakyta vakar ar seniau, " +
       "kalbėk apie tai kaip apie praeitį (\u201evakar sakei, kad…\u201c), nepainiok senų žinučių su dabartimi, pastebėk, jei jis rašo vėlai naktį ar po ilgos pertraukos. " +
       "Savo atsakymuose laiko žymų laužtiniuose skliaustuose nerašyk. Faktai atmintyje turi įsiminimo datą: senesni gali būti pasenę, todėl prieš remdamasis pasenusiu planu gali pasitikslinti.";
+    if (window.__bridge && window.__bridge.configured()) {
+      s += "\n\nTavo rankos: per įrankį computer_task gali perduoti darbą Claude Code, kuris dirba jo kompiuteryje, projekto aplanke. " +
+        "Naudok tai, kai jis prašo ką nors padaryti su failais, kodu, projektu ar kompiuteriu; paprastiems klausimams to nereikia. " +
+        "Prieš pavojingus ar negrįžtamus veiksmus (trinti failus, siųsti laiškus, git push, diegti programas, mokėti) pirmiausia paklausk jo aiškaus sutikimo ir tik tada perduok, užduotyje parašęs, kad jis sutiko. " +
+        "Nesakyk, kad kažką padarei kompiuteryje, kol Claude Code nepranešė, kad baigė.";
+      if (cJob && !cJob.done) s += " Dabar Claude Code dirba prie: „" + cJob.text.slice(0, 200) + "“ (" + mmss(Date.now() - cJob.started) + (cJob.last ? ", paskutinis veiksmas: " + cJob.last : "") +
+        "). Jei jis klausia, kaip sekasi, pasakyk tai; jei nori sustabdyti, naudok computer_stop.";
+    }
     if (mem.lastSeen) {
       var gap = Date.now() - mem.lastSeen, gh = gap / 36e5;
       if (gh > 3) s += "\n\nPaskutinį kartą kalbėjotės prieš " + (gh < 24 ? Math.round(gh) + " val." : Math.round(gh / 24) + " d.") +
@@ -2261,6 +2323,109 @@
     }).catch(noop).then(function () {
       reflecting = false;
       if (btn) { btn.disabled = false; btn.textContent = "Tegul apmąsto dabar"; }
+    });
+  }
+
+  /* ---------- hands: work handed to Claude Code on his computer ---------- */
+  var cJob = null;
+  var TOOL_LT = { Read: "skaito", Edit: "keičia", MultiEdit: "keičia", Write: "rašo", Bash: "paleidžia", Glob: "ieško failų", Grep: "ieško",
+    WebSearch: "ieško internete", WebFetch: "skaito puslapį", TodoWrite: "planuoja", Task: "paveda pagalbininkui", NotebookEdit: "keičia" };
+  function mmss(ms) { var sec = Math.round(ms / 1000); return Math.floor(sec / 60) + ":" + ("0" + (sec % 60)).slice(-2); }
+  function jobLine() {
+    if (!cJob) return "";
+    var last = cJob.last ? " · " + cJob.last : "";
+    return (cJob.done ? "Claude Code baigė" : "Claude Code dirba") + " · " + mmss((cJob.end || Date.now()) - cJob.started) + last;
+  }
+  function renderJob() { if (cJob && cJob.el) cJob.el.textContent = "🛠 " + jobLine(); }
+  var computerTool = {
+    name: "computer_task",
+    description: "Perduoda darbą Claude Code, kuris dirba žmogaus kompiuteryje jo projekto aplanke: skaito ir keičia failus, programuoja, paleidžia komandas, ieško projekte. " +
+      "Naudok, kai žmogus prašo ką nors padaryti kompiuteryje, projekte, failuose ar kode. Claude Code nemato jūsų pokalbio, todėl užduotį suformuluok aiškiai ir išsamiai, su visu reikalingu kontekstu. " +
+      "Darbas vyksta fone: įrankis tik jį paleidžia, o rezultatą gausi vėliau.",
+    inputSchema: { type: "object", properties: {
+      task: { type: "string", description: "Išsami užduotis Claude Code" },
+      new_session: { type: "boolean", description: "true, jei tai visai nauja tema ir ankstesnio Claude Code pokalbio tęsti nereikia" }
+    }, required: ["task"] },
+    execute: function (inp) {
+      var task = String((inp && inp.task) || "").trim();
+      if (!task) throw new Error("Tuščia užduotis");
+      if (cJob && !cJob.done) return { error: "Claude Code dar dirba prie: " + cJob.text + ". Palauk arba sustabdyk." };
+      return window.__bridge.start(task, !!(inp && inp.new_session)).then(function (d) {
+        cJob = { id: d.id, text: task, after: 0, started: Date.now(), last: "", spoken: 0, lastSpoke: Date.now(), done: false, fails: 0 };
+        cJob.el = addMsg("note", "");
+        renderJob();
+        setTimeout(watchJob, 1200);
+        return { started: true, note: "Darbas pradėtas fone. Trumpai, savo charakteriu, pasakyk žmogui, kad perdavei Claude Code ir pranešiu, kai baigs. Rezultato neišgalvok." };
+      }, function (e) { return { error: e.message || "nepavyko pasiekti kompiuterio" }; });
+    }
+  };
+  var computerStopTool = {
+    name: "computer_stop",
+    description: "Sustabdo Claude Code darbą, kuris šiuo metu vyksta žmogaus kompiuteryje.",
+    inputSchema: { type: "object", properties: {} },
+    execute: function () {
+      if (!cJob || cJob.done) return { error: "Niekas nevykdoma" };
+      return window.__bridge.stop(cJob.id).then(function () { return { stopped: true }; }, function (e) { return { error: e.message }; });
+    }
+  };
+  function watchJob() {
+    if (!cJob || cJob.done) return;
+    var job = cJob;
+    window.__bridge.poll(job.id, job.after).then(function (d) {
+      if (job !== cJob) return;
+      job.fails = 0;
+      (d.events || []).forEach(function (ev) {
+        if (ev.kind === "tool") job.last = (TOOL_LT[ev.name] || ev.name) + (ev.detail ? ": " + ev.detail : "");
+        else if (ev.kind === "text") job.lastText = ev.text;
+      });
+      job.after = d.next || job.after;
+      renderJob();
+      if (d.done) { job.done = true; job.end = Date.now(); job.cost = d.cost; renderJob(); announceJob(job, d); return; }
+      progressVoice(job);
+      setTimeout(watchJob, 1500);
+    }, function (e) {
+      if (job !== cJob) return;
+      if (++job.fails > 15) { job.done = true; job.end = Date.now(); job.last = "ryšys nutrūko"; renderJob(); announceJob(job, { error: "Praradau ryšį su kompiuteriu (" + e.message + ")." }); }
+      else setTimeout(watchJob, 3000);
+    });
+  }
+  /* now and then he says aloud what is going on, but never interrupts a conversation */
+  function progressVoice(job) {
+    if (job.spoken >= 4 || Date.now() - job.lastSpoke < 40000 || busy || state !== "idle" || !settings.narrate || !tts || muted) return;
+    job.lastSpoke = Date.now(); job.spoken++;
+    tts.speak("Claude Code dar dirba" + (job.last ? ", dabar " + job.last.split(":")[0] : "") + ".",
+      { voice: settings.voice, rate: settings.rate, mood: "calm", tilt: dayTilt() }).catch(noop);
+  }
+  function announceJob(job, d, tries) {
+    tries = tries || 0;
+    if ((busy || state === "speaking" || state === "listening") && tries < 90) { setTimeout(function () { announceJob(job, d, tries + 1); }, 1000); return; }
+    var report = d.error ? "KLAIDA: " + d.error + (d.result ? "\n" + d.result : "") : (d.result || "Claude Code baigė, bet ataskaitos neparašė.");
+    var marker = "(Claude Code baigė darbą: " + job.text.slice(0, 120) + ")";
+    if (!sample) { addMsg("bot", report); return; }
+    busy = true; setState("thinking");
+    var lead = instructions(), sysMode = !!window.__klaudijusShim;
+    var recent = mem.history.slice(-12);
+    while (recent.length && recent[0].role !== "user") recent.shift();
+    var msg = "[Tai ne žmogaus žodžiai, o pranešimas tau] Claude Code jo kompiuteryje baigė užduotį „" + job.text.slice(0, 400) + "“ per " + mmss(job.end - job.started) + ". " +
+      "Jo ataskaita:\n«" + report.slice(0, 2500) + "»\n\nPerteik tai žmogui trumpai, savo charakteriu. Nekeisk ir neišgalvok faktų, nieko nepridėk iš savęs apie tai, kas padaryta. " +
+      "Jei ataskaitoje yra klausimas ar reikia jo sprendimo, paklausk. Pradėk nuotaikos žyma.";
+    var messages = recent.map(function (m, i) { return { role: m.role, content: (i === 0 && !sysMode ? lead + "\n\n" : "") + timed(m) }; });
+    if (messages.length && messages[messages.length - 1].role === "user") messages[messages.length - 1].content += "\n\n" + msg;
+    else messages.push({ role: "user", content: (messages.length || sysMode ? "" : lead + "\n\n") + msg });
+    sample(messages, { modelTier: "quick", cache: false, system: sysMode ? lead : undefined }).then(function (res) {
+      var parts = splitMood((res && res.text) || ""), text = parts.text.trim() || report;
+      if (parts.mood) react(parts.mood);
+      var bubble = addMsg("bot", holdText() ? "…" : text);
+      if (holdText()) { pending = { bubble: bubble, text: text }; pendingT = setTimeout(reveal, 15000); }
+      attachFeedback(bubble, marker, text);
+      mem.history.push({ role: "user", content: marker, t: Date.now() });
+      mem.history.push({ role: "assistant", content: text, t: Date.now() });
+      persist("memory");
+      busy = false; lastActivity = Date.now();
+      speak(text, false, parts.mood || "calm");
+    }).catch(function () {
+      busy = false; setState("idle");
+      addMsg("bot", report);
     });
   }
 
@@ -2483,7 +2648,8 @@
       modelTier: "quick",
       cache: false,
       system: asSystem ? lead : undefined,
-      tools: [rememberTool, forgetTool].concat(settings.dayMood ? [moodShiftTool] : [], window.__models ? [switchModelTool] : []),
+      tools: [rememberTool, forgetTool].concat(settings.dayMood ? [moodShiftTool] : [], window.__models ? [switchModelTool] : [],
+        window.__bridge && window.__bridge.configured() ? [computerTool, computerStopTool] : []),
       onText: function (e) {
         var shown = splitMood(e.text).text;
         if (shown && !holdText()) { bubble.textContent = shown; captionEl.textContent = shown; scrollTalk(); }
