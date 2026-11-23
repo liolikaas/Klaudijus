@@ -464,6 +464,7 @@
         <option value="60">Po valandos tylos</option>
       </select>
 
+      <label class="check"><input type="checkbox" id="setFace"> <span>Veidas: kai jis kalba, iš sferos išnyra žmogaus veidas</span></label>
       <label class="check"><input type="checkbox" id="setGrid"> <span>Erdvėlaikio tinklelis: rodyti, kaip sferos masė išlenkia erdvę</span></label>
       <label class="check"><input type="checkbox" id="setAmbient"> <span>Namų ekranas: po minutės ramybės rodau laikrodį</span></label>
 
@@ -1330,7 +1331,7 @@
   }
 
   /* ---------- settings and memory ---------- */
-  var settings = { name: "Asistentas", tone: "draugiškai ir šiltai", about: "", voice: "buttery", rate: 1, handsfree: false, theme: "auto", ambient: true, voiceOn: true, narrate: true, user: "", rules: DEFAULT_RULES, phrases: DEFAULT_PHRASES, swears: DEFAULT_SWEARS, persona: DEFAULT_PERSONA, dayMood: true, nudge: "15", grid: true, chat: true, info: !narrow() };
+  var settings = { name: "Asistentas", tone: "draugiškai ir šiltai", about: "", voice: "buttery", rate: 1, handsfree: false, theme: "auto", ambient: true, voiceOn: true, narrate: true, user: "", rules: DEFAULT_RULES, phrases: DEFAULT_PHRASES, swears: DEFAULT_SWEARS, persona: DEFAULT_PERSONA, dayMood: true, nudge: "15", grid: true, face: true, chat: true, info: !narrow() };
   var mem = { notes: [], history: [], summary: "", summaryAt: 0, lastSeen: 0, liked: [], disliked: [], noteT: {}, recentOpen: [], self: "", them: "", sinceReflect: 0, reflectAt: 0, day: null, salt: Math.floor(Math.random() * 1e9) };
   var LS = "asist.v2", touched = false;
 
@@ -1345,6 +1346,7 @@
     if (typeof d.theme === "string" && setTheme.querySelector('option[value="' + d.theme + '"]')) settings.theme = d.theme;
     if (typeof d.ambient === "boolean") settings.ambient = d.ambient;
     if (typeof d.grid === "boolean") settings.grid = d.grid;
+    if (typeof d.face === "boolean") settings.face = d.face;
     if (typeof d.voiceOn === "boolean") settings.voiceOn = d.voiceOn;
     if (typeof d.narrate === "boolean") settings.narrate = d.narrate;
     if (typeof d.chat === "boolean") settings.chat = d.chat;
@@ -1500,6 +1502,7 @@
     setTheme.value = settings.theme;
     setAmbient.checked = settings.ambient;
     $("setGrid").checked = settings.grid !== false;
+    $("setFace").checked = settings.face !== false;
     $("setVoiceOn").checked = settings.voiceOn;
     $("setNarrate").checked = settings.narrate;
     $("voiceCard").classList.toggle("off", !settings.voiceOn);
@@ -1560,6 +1563,7 @@
     if (talk.querySelector(".greet")) renderTalk(); persist("settings");
   });
   setRules.addEventListener("change", function () { settings.rules = setRules.value.trim(); persist("settings"); });
+  $("setFace").addEventListener("change", function () { settings.face = $("setFace").checked; persist("settings"); });
   $("setGrid").addEventListener("change", function () { settings.grid = $("setGrid").checked; persist("settings"); });
   $("setDayMood").addEventListener("change", function () { settings.dayMood = $("setDayMood").checked; persist("settings"); renderDayMood(); });
   $("setNudge").addEventListener("change", function () { settings.nudge = $("setNudge").value; persist("settings"); });
@@ -3062,6 +3066,77 @@
   var glints = [];
   for (var i = 0; i < 90; i++) glints.push({ a: Math.random() * 6.283, r: Math.pow(Math.random(), 1.8), ph: Math.random() * 6.28, sp: 2 + Math.random() * 5 });
   var level = 0, target = 0, spin = 0, lastBeat = 0, last = 0, pull = 0, warmth = 0, voiceOn = 0;
+  /* a face that surfaces from the sphere while he speaks: a relief map in the viewer's frame,
+     so the particles flow through it like a face pressing through a membrane */
+  var faceAmt = 0, mouthOpen = 0, faceDemo = /[?&]veidas=1/.test(location.search);
+  function gs(du, dv, su, sv) { return Math.exp(-(du * du / su + dv * dv / sv)); }
+  var faceEye = 0;
+  function faceRelief(u, v, open) {
+    var h = 0.05 * gs(u, v - 0.05, 0.4, 0.55);                                   /* the head itself */
+    h += 0.07 * gs(u, v + 0.27, 0.12, 0.004);                                     /* brow ridge */
+    var eL = gs(u - 0.27, v + 0.12, 0.014, 0.008), eR = gs(u + 0.27, v + 0.12, 0.014, 0.008);
+    h -= 0.13 * (eL + eR);                                                        /* eye sockets */
+    faceEye = gs(u - 0.27, v + 0.12, 0.002, 0.0015) + gs(u + 0.27, v + 0.12, 0.002, 0.0015);
+    h += 0.15 * gs(u, v - 0.04, 0.006, 0.035);                                    /* nose bridge */
+    h += 0.08 * gs(u, v - 0.17, 0.012, 0.006);                                    /* nose tip */
+    h += 0.05 * (gs(u - 0.36, v - 0.06, 0.02, 0.012) + gs(u + 0.36, v - 0.06, 0.02, 0.012)); /* cheekbones */
+    var mv = 0.36;
+    h += 0.06 * gs(u, v - mv + 0.035, 0.03, 0.0015);                              /* upper lip */
+    h += 0.06 * gs(u, v - mv - 0.035 - open * 0.05, 0.03, 0.0015);               /* lower lip, drops as the mouth opens */
+    h -= (0.03 + 0.14 * open) * gs(u, v - mv - open * 0.02, 0.018, 0.0008 + 0.004 * open); /* the mouth */
+    h += 0.07 * gs(u, v - 0.6, 0.02, 0.008);                                      /* chin */
+    return h;
+  }
+  /* the face itself is drawn by its own fine dust, denser than the sphere's points, so the features read;
+     relief and its slopes are computed once for a closed and an open mouth and blended while he talks */
+  var FACE = [];
+  (function () {
+    var e = 0.01;
+    for (var v = -0.62; v <= 0.86; v += 0.022) {
+      for (var u = -0.74; u <= 0.74; u += 0.022) {
+        var ju = u + (Math.random() - 0.5) * 0.016, jv = v + (Math.random() - 0.5) * 0.016;
+        var m = (ju * ju) / (0.56 * 0.56) + ((jv - 0.1) * (jv - 0.1)) / (0.74 * 0.74);
+        if (m > 1) continue;
+        var f = { u: ju, v: jv, edge: Math.min(1, (1 - m) * 4), s: Math.random() };
+        [0, 1].forEach(function (o) {
+          var h = faceRelief(ju, jv, o), eye = faceEye;
+          f["h" + o] = h; f["e" + o] = eye;
+          f["gu" + o] = (faceRelief(ju + e, jv, o) - faceRelief(ju - e, jv, o)) / (2 * e);
+          f["gv" + o] = (faceRelief(ju, jv + e, o) - faceRelief(ju, jv - e, o)) / (2 * e);
+        });
+        FACE.push(f);
+      }
+    }
+  })();
+  function drawFace(cx, cy, R, t, tint) {
+    if (faceAmt < 0.02) return;
+    var sway = Math.sin(t * 1.1) * 0.04 * faceAmt, nod = Math.sin(t * 2.3) * 0.02 * mouthOpen;
+    var col = blend(blend(ICE, [255, 245, 230], 0.55), tint, warmth * 0.4), A = 7;
+    for (var i = 0; i < FACE.length; i++) {
+      var f = FACE[i], o = mouthOpen;
+      var h = f.h0 + (f.h1 - f.h0) * o, gu = f.gu0 + (f.gu1 - f.gu0) * o, gv = f.gv0 + (f.gv1 - f.gv0) * o, eye = f.e0;
+      var x = f.u * 0.8 + sway, y2 = f.v * 0.92 + 0.02 + nod, rr = x * x + y2 * y2;
+      if (rr >= 0.97) continue;
+      var z2 = Math.sqrt(1 - rr), r = 1 + h * 0.6 * faceAmt + level * 0.06;
+      var sc = PERS / (PERS - z2 * r);
+      /* light on the relief: slopes facing the upper-left light are bright, the others fall into shadow */
+      var nx = x - gu * A * 0.8, ny = y2 - gv * A * 0.92, nz = z2, nl = Math.sqrt(nx * nx + ny * ny + nz * nz);
+      var shade = Math.max(0, (nx * LIx + ny * LIy + nz * LIz) / nl);
+      shade = Math.pow(shade, 2.2) * (1 + Math.max(0, h) * 6);
+      /* eye sockets and the open mouth stay empty: holes read better than shades */
+      if (h < -0.035 && eye < 0.25) continue;
+      var a = faceAmt * f.edge * (0.04 + 1.5 * Math.min(1, shade)) * (0.8 + 0.2 * Math.sin(t * 3 + f.s * 20));
+      if (a < 0.03 && eye < 0.25) continue;
+      var px = cx + x * r * R * sc, py = cy + y2 * r * R * sc, sz = (0.9 + Math.max(0, h) * 5) * sc;
+      ctx.fillStyle = rgba(col, Math.min(1, a));
+      ctx.fillRect(px - sz / 2, py - sz / 2, sz, sz);
+      if (eye > 0.25) {
+        /* a faint light in the eyes */
+        ctx.fillStyle = rgba(blend(col, [255, 255, 255], 0.6), Math.min(1, eye * faceAmt * 0.9));
+        ctx.fillRect(px - sz * 0.8, py - sz * 0.8, sz * 1.6, sz * 1.6);
+      }
+    }
+  }
 
   /* reactions to what the answer says */
   /* luminous ribbons orbiting the sphere */
@@ -3264,6 +3339,10 @@
     }
     if (calm) target = 0.08;
     level += (target - level) * Math.min(1, dt * 10);
+    var faceWant = settings.face === false || calm ? 0 : faceDemo ? 1 : state === "speaking" ? 1 : 0;
+    faceAmt += (faceWant - faceAmt) * Math.min(1, dt * (faceWant ? 2.2 : 1.4));
+    var voiceLvl = faceDemo ? 0.35 + 0.35 * Math.sin(t * 9) * Math.sin(t * 3.1) : level;
+    mouthOpen += (Math.min(1, Math.max(0, voiceLvl) * 1.8) - mouthOpen) * Math.min(1, dt * 14);
     voiceOn += (((state === "speaking" || state === "listening") ? 1 : 0) - voiceOn) * Math.min(1, dt * 5);
     for (var i = 0; i < RAYS; i++) {
       var ry = rays[i];
@@ -3430,16 +3509,18 @@
 
     /* halo and core */
     var hg = ctx.createRadialGradient(cx, cy, 0, cx, cy, R * 2.3);
-    hg.addColorStop(0, rgba(coreCol, Math.min(1, (0.3 + level * 0.32) * glow)));
+    hg.addColorStop(0, rgba(coreCol, Math.min(1, (0.3 + level * 0.32) * glow) * (1 - 0.5 * faceAmt)));
     hg.addColorStop(0.45, rgba(blend(VIOLET, EMBER, warmth * 0.5), 0.12 + level * 0.1));
     hg.addColorStop(1, rgba(coreCol, 0));
     ctx.fillStyle = hg;
     ctx.fillRect(cx - R * 2.3, cy - R * 2.3, R * 4.6, R * 4.6);
 
-    var cr0 = R * (0.3 + level * 0.35);
+    /* while the face is out, the inner sun steps back so the features can be read */
+    var faceDim = 1 - 0.8 * faceAmt;
+    var cr0 = R * (0.3 + level * 0.35) * (1 - 0.4 * faceAmt);
     var cg0 = ctx.createRadialGradient(cx, cy, 0, cx, cy, cr0);
-    cg0.addColorStop(0, "rgba(255,255,255," + (0.75 + level * 0.25).toFixed(3) + ")");
-    cg0.addColorStop(0.35, rgba(coreCol, 0.55));
+    cg0.addColorStop(0, "rgba(255,255,255," + ((0.75 + level * 0.25) * faceDim).toFixed(3) + ")");
+    cg0.addColorStop(0.35, rgba(coreCol, 0.55 * faceDim));
     cg0.addColorStop(1, rgba(coreCol, 0));
     ctx.fillStyle = cg0;
     ctx.beginPath(); ctx.arc(cx, cy, cr0, 0, 6.283); ctx.fill();
@@ -3448,7 +3529,7 @@
     var fl = R * (1.6 + level * 1.6);
     var fg = ctx.createLinearGradient(cx - fl, cy, cx + fl, cy);
     fg.addColorStop(0, rgba(coreCol, 0));
-    fg.addColorStop(0.5, rgba(coreCol, 0.35 + level * 0.4));
+    fg.addColorStop(0.5, rgba(coreCol, (0.35 + level * 0.4) * faceDim));
     fg.addColorStop(1, rgba(coreCol, 0));
     ctx.fillStyle = fg;
     ctx.fillRect(cx - fl, cy - 0.75, fl * 2, 1.5);
@@ -3510,9 +3591,20 @@
     for (var i = 0; i < N; i++) {
       var p = pts[i];
       var wave = Math.sin(p.y * 6 + t * 3 + p.s * 6.28) * 0.5 + Math.sin(p.x * 5 - t * 2.2) * 0.5;
-      var r = 1 - pull * 0.1 + level * 0.34 * wave + level * 0.1;
+      var r = 1 - pull * 0.1 + level * 0.34 * wave * (1 - 0.7 * faceAmt) + level * 0.1;
       var x = p.x * cs - p.z * sn, z = p.x * sn + p.z * cs, y = p.y;
       var y2 = y * ct - z * st, z2 = y * st + z * ct;
+      var fRel = 0, fEye = 0, fMask = 0;
+      if (faceAmt > 0.01 && z2 > 0.1) {
+        /* the face sits in the viewer's frame; the head sways and nods a little as he talks */
+        var fu = (x + Math.sin(t * 1.1) * 0.05 * faceAmt) / 0.8, fv = (y2 - 0.02 + Math.sin(t * 2.3) * 0.025 * mouthOpen) / 0.92;
+        var wz = Math.min(1, (z2 - 0.1) / 0.45);
+        fRel = faceRelief(fu, fv, mouthOpen) * wz * faceAmt * (0.75 + 0.5 * Math.min(1, voiceLvl * 2));
+        fEye = faceEye * wz * faceAmt;
+        var mm = fu * fu / 0.31 + (fv - 0.1) * (fv - 0.1) / 0.55;
+        fMask = mm < 1 ? faceAmt * Math.min(1, (1 - mm) * 3) : 0;
+        r += fRel * 0.6 + (Math.random() - 0.5) * 0.006 * faceAmt * voiceLvl;
+      }
       var boost = 0;
       for (var k = 0; k < pulses.length; k++) {
         var pu = pulses[k], dot = x * pu.x + y2 * pu.y + z2 * pu.z;
@@ -3526,7 +3618,7 @@
       var hd = x * Hx + y2 * Hy + z2 * Hz;
       PX[i] = cx + x * r * R * sc; PY[i] = cy + y2 * r * R * sc; PD[i] = depth; PB[i] = boost;
       PS[i] = (0.45 + depth * 0.95) * (1 + level * 0.6) * (1 + boost * 0.9) * Math.pow(sc, 0.7);
-      PL[i] = 0.12 + 0.88 * Math.pow(lit, 1.6);
+      PL[i] = (0.12 + 0.88 * Math.pow(lit, 1.6)) * (fMask > 0 ? 1 - 0.85 * fMask : 1);
       PSP[i] = hd > 0 ? Math.pow(hd, 28) : 0;
     }
     /* far half: soft and out of focus */
@@ -3584,6 +3676,7 @@
       ctx.arc(PX[i], PY[i], PS[i] * (1 + PSP[i] * 0.6), 0, 6.283);
       ctx.fill();
     }
+    drawFace(cx, cy, R, t, tint);
 
     /* neural network on the surface */
     var netA = 0.04 + (state === "thinking" ? 0.1 : 0) + level * 0.06;
