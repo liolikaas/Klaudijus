@@ -3071,20 +3071,30 @@
   var faceAmt = 0, mouthOpen = 0, faceDemo = /[?&]veidas=1/.test(location.search);
   function gs(du, dv, su, sv) { return Math.exp(-(du * du / su + dv * dv / sv)); }
   var faceEye = 0;
+  /* an irregular face: features a little off, one side not like the other, the surface craggy like rock */
+  var FA = { eyeL: (Math.random() - 0.5) * 0.05, eyeR: (Math.random() - 0.5) * 0.05, nose: (Math.random() - 0.5) * 0.06,
+    mouthTilt: (Math.random() - 0.5) * 0.12, cheek: 0.7 + Math.random() * 0.6, ph1: Math.random() * 6.28, ph2: Math.random() * 6.28 };
+  function crag(u, v) {
+    return Math.sin(u * 7.3 + FA.ph1) * Math.sin(v * 6.1 + 0.4) * 0.45 +
+      Math.sin(u * 13.7 + v * 9.1 + FA.ph2) * 0.3 + Math.sin(u * 23.1 - v * 19.7 + 0.9) * 0.17 + Math.sin(u * 41 + v * 37 + FA.ph1) * 0.08;
+  }
   function faceRelief(u, v, open) {
     var h = 0.05 * gs(u, v - 0.05, 0.4, 0.55);                                   /* the head itself */
-    h += 0.07 * gs(u, v + 0.27, 0.12, 0.004);                                     /* brow ridge */
-    var eL = gs(u - 0.27, v + 0.12, 0.014, 0.008), eR = gs(u + 0.27, v + 0.12, 0.014, 0.008);
-    h -= 0.13 * (eL + eR);                                                        /* eye sockets */
-    faceEye = gs(u - 0.27, v + 0.12, 0.002, 0.0015) + gs(u + 0.27, v + 0.12, 0.002, 0.0015);
-    h += 0.15 * gs(u, v - 0.04, 0.006, 0.035);                                    /* nose bridge */
-    h += 0.08 * gs(u, v - 0.17, 0.012, 0.006);                                    /* nose tip */
-    h += 0.05 * (gs(u - 0.36, v - 0.06, 0.02, 0.012) + gs(u + 0.36, v - 0.06, 0.02, 0.012)); /* cheekbones */
-    var mv = 0.36;
-    h += 0.06 * gs(u, v - mv + 0.035, 0.03, 0.0015);                              /* upper lip */
-    h += 0.06 * gs(u, v - mv - 0.035 - open * 0.05, 0.03, 0.0015);               /* lower lip, drops as the mouth opens */
-    h -= (0.03 + 0.14 * open) * gs(u, v - mv - open * 0.02, 0.018, 0.0008 + 0.004 * open); /* the mouth */
-    h += 0.07 * gs(u, v - 0.6, 0.02, 0.008);                                      /* chin */
+    h += 0.09 * gs(u, v + 0.27, 0.12, 0.004);                                     /* brow ridge */
+    var yl = v + 0.12 + FA.eyeL, yr = v + 0.12 + FA.eyeR;
+    var eL = gs(u - 0.27, yl, 0.016, 0.009), eR = gs(u + 0.25, yr, 0.013, 0.008);
+    h -= 0.16 * (eL + eR);                                                        /* eye sockets, not quite alike */
+    faceEye = gs(u - 0.27, yl, 0.002, 0.0015) + gs(u + 0.25, yr, 0.002, 0.0015);
+    var nu = u - FA.nose * (v + 0.1);                                             /* the nose leans a little */
+    h += 0.17 * gs(nu, v - 0.04, 0.006, 0.035);
+    h += 0.09 * gs(nu - FA.nose * 0.3, v - 0.17, 0.012, 0.006);
+    h += 0.06 * (FA.cheek * gs(u - 0.36, v - 0.06, 0.02, 0.012) + (2 - FA.cheek) * gs(u + 0.36, v - 0.08, 0.02, 0.012));
+    var mv = 0.36 + u * FA.mouthTilt;                                             /* a crooked mouth */
+    h += 0.07 * gs(u, v - mv + 0.035, 0.03, 0.0015);
+    h += 0.07 * gs(u, v - mv - 0.035 - open * 0.05, 0.03, 0.0015);
+    h -= (0.04 + 0.16 * open) * gs(u, v - mv - open * 0.02, 0.018, 0.0008 + 0.004 * open);
+    h += 0.08 * gs(u + FA.nose * 0.5, v - 0.6, 0.02, 0.008);                      /* chin */
+    h += 0.04 * crag(u, v) * gs(u, v - 0.1, 0.35, 0.6);                           /* uneven, rocky surface */
     return h;
   }
   /* the face itself is drawn by its own fine dust, denser than the sphere's points, so the features read;
@@ -3097,7 +3107,8 @@
         var ju = u + (Math.random() - 0.5) * 0.016, jv = v + (Math.random() - 0.5) * 0.016;
         var m = (ju * ju) / (0.56 * 0.56) + ((jv - 0.1) * (jv - 0.1)) / (0.74 * 0.74);
         if (m > 1) continue;
-        var f = { u: ju, v: jv, edge: Math.min(1, (1 - m) * 4), s: Math.random() };
+        var ang = Math.random() * 6.283, far = 0.08 + Math.random() * 0.22;
+        var f = { u: ju, v: jv, edge: Math.min(1, (1 - m) * 4), s: Math.random(), th: Math.random(), jx: Math.cos(ang) * far, jy: Math.sin(ang) * far };
         [0, 1].forEach(function (o) {
           var h = faceRelief(ju, jv, o), eye = faceEye;
           f["h" + o] = h; f["e" + o] = eye;
@@ -3111,28 +3122,32 @@
   function drawFace(cx, cy, R, t, tint) {
     if (faceAmt < 0.02) return;
     var sway = Math.sin(t * 1.1) * 0.04 * faceAmt, nod = Math.sin(t * 2.3) * 0.02 * mouthOpen;
-    var col = blend(blend(ICE, [255, 245, 230], 0.55), tint, warmth * 0.4), A = 7;
+    var col = blend(blend(ICE, [255, 245, 230], 0.55), tint, warmth * 0.4), A = 9;
     for (var i = 0; i < FACE.length; i++) {
       var f = FACE[i], o = mouthOpen;
       var h = f.h0 + (f.h1 - f.h0) * o, gu = f.gu0 + (f.gu1 - f.gu0) * o, gv = f.gv0 + (f.gv1 - f.gv0) * o, eye = f.e0;
-      var x = f.u * 0.8 + sway, y2 = f.v * 0.92 + 0.02 + nod, rr = x * x + y2 * y2;
+      /* each grain arrives on its own: while the voice is weak only some are in place, the rest still drift in */
+      var pv = Math.max(0, Math.min(1, (faceAmt - f.th * 0.75) / 0.25));
+      if (pv <= 0) continue;
+      var drift = (1 - pv) * (1 - pv);
+      var x = f.u * 0.8 + sway + f.jx * drift, y2 = f.v * 0.92 + 0.02 + nod + f.jy * drift, rr = x * x + y2 * y2;
       if (rr >= 0.97) continue;
       var z2 = Math.sqrt(1 - rr), r = 1 + h * 0.6 * faceAmt + level * 0.06;
       var sc = PERS / (PERS - z2 * r);
       /* light on the relief: slopes facing the upper-left light are bright, the others fall into shadow */
       var nx = x - gu * A * 0.8, ny = y2 - gv * A * 0.92, nz = z2, nl = Math.sqrt(nx * nx + ny * ny + nz * nz);
       var shade = Math.max(0, (nx * LIx + ny * LIy + nz * LIz) / nl);
-      shade = Math.pow(shade, 2.2) * (1 + Math.max(0, h) * 6);
-      /* eye sockets and the open mouth stay empty: holes read better than shades */
+      /* hard light: ridges blaze, slopes turned away fall into black */
+      shade = Math.pow(shade, 3) * (1 + Math.max(0, h) * 9);
       if (h < -0.035 && eye < 0.25) continue;
-      var a = faceAmt * f.edge * (0.04 + 1.5 * Math.min(1, shade)) * (0.8 + 0.2 * Math.sin(t * 3 + f.s * 20));
-      if (a < 0.03 && eye < 0.25) continue;
-      var px = cx + x * r * R * sc, py = cy + y2 * r * R * sc, sz = (0.9 + Math.max(0, h) * 5) * sc;
-      ctx.fillStyle = rgba(col, Math.min(1, a));
+      if (shade < 0.05 && eye < 0.25) continue;
+      var a = pv * f.edge * Math.min(1, 0.1 + 1.8 * shade) * (0.85 + 0.15 * Math.sin(t * 3 + f.s * 20));
+      var px = cx + x * r * R * sc, py = cy + y2 * r * R * sc, sz = (0.8 + Math.min(1.5, shade) * 1.4 + Math.max(0, h) * 4) * sc;
+      ctx.fillStyle = rgba(blend(col, [255, 255, 255], Math.min(0.55, shade * 0.4)), Math.min(1, a));
       ctx.fillRect(px - sz / 2, py - sz / 2, sz, sz);
       if (eye > 0.25) {
         /* a faint light in the eyes */
-        ctx.fillStyle = rgba(blend(col, [255, 255, 255], 0.6), Math.min(1, eye * faceAmt * 0.9));
+        ctx.fillStyle = rgba(blend(col, [255, 255, 255], 0.6), Math.min(1, eye * pv * 0.9));
         ctx.fillRect(px - sz * 0.8, py - sz * 0.8, sz * 1.6, sz * 1.6);
       }
     }
@@ -3339,9 +3354,11 @@
     }
     if (calm) target = 0.08;
     level += (target - level) * Math.min(1, dt * 10);
-    var faceWant = settings.face === false || calm ? 0 : faceDemo ? 1 : state === "speaking" ? 1 : 0;
-    faceAmt += (faceWant - faceAmt) * Math.min(1, dt * (faceWant ? 2.2 : 1.4));
-    var voiceLvl = faceDemo ? 0.35 + 0.35 * Math.sin(t * 9) * Math.sin(t * 3.1) : level;
+    /* the face is shaped by the voice itself: it gathers while words sound and loosens in the pauses */
+    var demoTalk = faceDemo && (t % 6.5) < 4.2;
+    var voiceLvl = faceDemo ? (demoTalk ? 0.3 + 0.35 * Math.abs(Math.sin(t * 9) * Math.sin(t * 3.1)) : 0) : (state === "speaking" ? level : 0);
+    var faceWant = settings.face === false || calm ? 0 : Math.min(1, voiceLvl * 2.6);
+    faceAmt += (faceWant - faceAmt) * Math.min(1, dt * (faceWant > faceAmt ? 3 : 1.1));
     mouthOpen += (Math.min(1, Math.max(0, voiceLvl) * 1.8) - mouthOpen) * Math.min(1, dt * 14);
     voiceOn += (((state === "speaking" || state === "listening") ? 1 : 0) - voiceOn) * Math.min(1, dt * 5);
     for (var i = 0; i < RAYS; i++) {
