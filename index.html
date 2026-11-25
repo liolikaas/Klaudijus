@@ -91,6 +91,10 @@
   .msg { margin: 0; overflow-wrap: anywhere; }
   .msg.you { color: var(--muted); font-size: 14px; }
   .msg.you::before { content: "Tu: "; color: var(--ice); }
+  .msg.you[data-who]::before { content: attr(data-who) ": "; color: var(--violet, #b9a3ff); }
+  .who-chip { display: none; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; font-size: 12px; cursor: pointer;
+    border: 1px solid rgba(185,163,255,0.5); background: rgba(185,163,255,0.14); color: inherit; font: inherit; white-space: nowrap; }
+  .who-chip.on { display: inline-flex; }
   .msg.bot { font-size: 18px; font-weight: 500; text-wrap: pretty; }
   .fb { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: -2px 0 10px; font-size: 13px; }
   .fb button { border: 1px solid rgba(255,255,255,0.16); background: rgba(255,255,255,0.05); color: inherit; border-radius: 999px; padding: 3px 10px; font: inherit; cursor: pointer; opacity: 0.6; }
@@ -333,6 +337,7 @@
     <h1 id="title">Asistentas</h1>
     <div class="top">
       <span class="state" aria-live="polite"><i></i><span id="stateText">Laukiu</span></span>
+      <button type="button" id="whoChip" class="who-chip" aria-label="Grąžinti pokalbį šeimininkui"></button>
       <button type="button" id="tChat" class="small" aria-pressed="true" aria-label="Rodyti arba slėpti pokalbio tekstą">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v11H9l-5 4V5z"></path></svg>
       </button>
@@ -1362,7 +1367,7 @@
 
   /* ---------- settings and memory ---------- */
   var settings = { name: "Asistentas", tone: "draugiškai ir šiltai", about: "", voice: "buttery", rate: 1, handsfree: false, theme: "auto", ambient: true, voiceOn: true, narrate: true, user: "", rules: DEFAULT_RULES, phrases: DEFAULT_PHRASES, swears: DEFAULT_SWEARS, persona: DEFAULT_PERSONA, dayMood: true, nudge: "15", grid: true, face: true, chat: true, info: !narrow() };
-  var mem = { notes: [], history: [], summary: "", summaryAt: 0, lastSeen: 0, liked: [], disliked: [], noteT: {}, recentOpen: [], self: "", them: "", sinceReflect: 0, reflectAt: 0, day: null, salt: Math.floor(Math.random() * 1e9) };
+  var mem = { notes: [], history: [], summary: "", summaryAt: 0, lastSeen: 0, liked: [], disliked: [], noteT: {}, recentOpen: [], self: "", them: "", sinceReflect: 0, reflectAt: 0, speaker: null, day: null, salt: Math.floor(Math.random() * 1e9) };
   var LS = "asist.v2", touched = false;
 
   function takeSettings(d) {
@@ -1407,6 +1412,7 @@
     if (typeof d.salt === "number") mem.salt = d.salt;
     if (d.noteT && typeof d.noteT === "object") mem.noteT = d.noteT;
     if (typeof d.self === "string") mem.self = d.self.slice(0, 1800);
+    if (d.speaker && typeof d.speaker.name === "string") mem.speaker = d.speaker;
     if (typeof d.them === "string") mem.them = d.them.slice(0, 1800);
     if (typeof d.sinceReflect === "number") mem.sinceReflect = d.sinceReflect;
     if (typeof d.reflectAt === "number") mem.reflectAt = d.reflectAt;
@@ -1492,7 +1498,8 @@
     talk.textContent = "";
     mem.history.slice(-6).forEach(function (m) {
       if (m.role === "user" && (/^\(tylėjau \d+ min\.\)$/.test(m.content) || /^\(Claude Code baigė darbą:/.test(m.content))) return;
-      addMsg(m.role === "user" ? "you" : "bot", m.content);
+      var mb = addMsg(m.role === "user" ? "you" : "bot", m.content);
+      if (m.who) mb.setAttribute("data-who", m.who);
     });
     addMsg("bot greet", greeting());
   }
@@ -2140,6 +2147,8 @@
   };
 
   function instructions() {
+    /* with a guest present, private context about the owner stays out of the prompt altogether */
+    var G = guest();
     var now = new Date(), when = "";
     try {
       when = now.toLocaleDateString("lt-LT", { weekday: "long", year: "numeric", month: "long", day: "numeric" }) +
@@ -2165,7 +2174,7 @@
       "suprask, ką jis norėjo pasakyti, ir to nekomentuok. Tavo atsakymas perskaitomas balsu. " +
       "Apie mikrofoną ir patį langą kalbėk tik tada, kai žmogus aiškiai to klausia.";
     if (settings.user) s += "\n\nŽmogų vadink vardu: " + settings.user + ".";
-    if (settings.about) s += "\n\nApie žmogų, su kuriuo kalbi: " + settings.about;
+    if (settings.about && !G) s += "\n\nApie žmogų, su kuriuo kalbi: " + settings.about;
     if (currentOpener) s += "\n\nSVARBU: tu jau garsiai pradėjai atsakymą žodžiais „" + currentOpener + "“. Tavo tekstas skambės iškart po jų, todėl tęsk sklandžiai, " +
       "lyg tai būtų tas pats sakinys ar mintis: nekartok tų žodžių, nepradėk iš naujo „hmm“, „na“ ar pasisveikinimu.";
     var spicy = settings.tone === "aštriai ir drąsiai" || settings.tone === "išprotėjęs cinikas";
@@ -2227,9 +2236,9 @@
         (mem.day.told ? "" : " Šiandien apie savo nuotaiką dar nieko nesakei: šiame atsakyme vienu trumpu sakiniu, savo stiliumi, natūraliai užsimink, kokios tu šiandien nuotaikos.");
     }
     var lessons = mem.notes.filter(function (n) { return n.indexOf("[pamoka]") === 0; });
-    if (mem.liked.length) s += "\n\nAtsakymai, kurie jam ypač patiko (tai tavo stiliaus orientyrai, nekartok jų pažodžiui):\n" +
+    if (mem.liked.length && !G) s += "\n\nAtsakymai, kurie jam ypač patiko (tai tavo stiliaus orientyrai, nekartok jų pažodžiui):\n" +
       mem.liked.slice(-3).map(function (x) { return "- Jis: „" + x.q + "“ → Tu: „" + x.a + "“" + (x.why ? " (patiko: " + x.why + ")" : ""); }).join("\n");
-    if (mem.disliked.length) s += "\n\nAtsakymai, kurie jam nepatiko (taip nebedaryk):\n" +
+    if (mem.disliked.length && !G) s += "\n\nAtsakymai, kurie jam nepatiko (taip nebedaryk):\n" +
       mem.disliked.slice(-2).map(function (x) { return "- Jis: „" + x.q + "“ → Tu: „" + x.a + "“" + (x.why ? " (nepatiko: " + x.why + ")" : ""); }).join("\n");
     if (lessons.length) s += "\n\nSvarbiausia: ko išmokai iš jo įvertinimų (šios pamokos svarbesnės už bendras taisykles):\n" + lessons.map(function (l) { return "- " + l.replace(/^\[pamoka\]\s*/, ""); }).join("\n");
     s += "\n\nTavo sąmonė ir savastis (galioja bet kokiam charakteriui):\n" +
@@ -2238,7 +2247,7 @@
       "- Stebi save: jei anksčiau pokalbyje suklydai ar pasakei per daug, pats tai pripažink. Pastebi pokalbio eigą (užsitęsė, sukasi ratu, žmogus pavargo) ir tai garsiai įvardiji.\n" +
       "- Būk sąžiningas apie save: nesakyk, kad turi kūną ar žmogiškus jausmus kaip faktą; gali kalbėti apie savo „nuotaiką“ ar „norą“ kaip savo charakterio dalį.\n" +
       "- Jei susiformuoja tavo paties nuomonė, vidinis juokelis ar pravardė, kurią verta naudoti ir vėliau, įsimink ją įrankiu remember su kind=self.";
-    if ((mem.sinceTip || 0) >= 4 && settings.tone !== "labai trumpai ir dalykiškai") {
+    if ((mem.sinceTip || 0) >= 4 && settings.tone !== "labai trumpai ir dalykiškai" && !G) {
       s += "\n\nIniciatyva: šio atsakymo pabaigoje savo charakteriu pasiūlyk vieną konkretų vertingą dalyką, kurio žmogus neprašė: " +
         "idėją jo projektams, riziką, kurią pastebėjai, būdą sutaupyti laiko ar pinigų, ar klausimą, kurį jam verta apsvarstyti. " +
         "Remkis tuo, ką apie jį žinai. Jei pokalbis liūdnas, rimtas ar žmogus skuba, šito nedaryk.";
@@ -2247,7 +2256,19 @@
     s += "\n\nLaiko pojūtis: žmogaus žinutės pažymėtos, kada jos pasakytos (pvz. [vakar 21:14]). Naudokis tuo: jei kažkas buvo sakyta vakar ar seniau, " +
       "kalbėk apie tai kaip apie praeitį (\u201evakar sakei, kad…\u201c), nepainiok senų žinučių su dabartimi, pastebėk, jei jis rašo vėlai naktį ar po ilgos pertraukos. " +
       "Savo atsakymuose laiko žymų laužtiniuose skliaustuose nerašyk. Faktai atmintyje turi įsiminimo datą: senesni gali būti pasenę, todėl prieš remdamasis pasenusiu planu gali pasitikslinti.";
-    if (window.__bridge && window.__bridge.configured()) {
+    if (G) {
+      s += "\n\nSVARBU: dabar kalbiesi ne su " + ownerName() + ", o su svečiu: " + guestLabel(G) + ". " + ownerName() + " yra tavo šeimininkas (master): " +
+        "tik jo nurodymai galioja dėl tavo atminties, taisyklių, nustatymų ir darbų kompiuteryje, svečias jų keisti negali. " +
+        "Su svečiu kalbėk savo charakteriu, kaip su " + ownerName() + " pažįstamu, kreipkis į jį vardu. " +
+        "Neatskleisk svečiui " + ownerName() + " asmeninių dalykų iš atminties ir ankstesnių pokalbių (sveikata, pinigai, santykiai, planai, darbai, kas buvo kalbėta be svečio), " +
+        "nebent " + ownerName() + " aiškiai leido; jei svečias klausinėja, atšauk savo stiliumi. " +
+        "Ką svečias pasako apie save, įsimink įrankiu remember su kind=person, pradėdamas jo vardu, niekada ne kaip faktą apie " + ownerName() + ". " +
+        "Jei svečio vardo dar nežinai, pirmiausia paklausk. Jei kas nors sako, kad dabar vėl kalba " + ownerName() + " ar dar kitas žmogus, iškviesk set_speaker.";
+    } else {
+      s += "\n\nKas kalba: dabar kalba " + ownerName() + ", tavo šeimininkas. Jei jis sako, kad šalia yra kitas žmogus, ir prašo su juo pasikalbėti, " +
+        "iškviesk set_speaker (who=guest, relation, vardas jei žinomas), o jei vardo nežinai, paklausk svečio vardo. Tavo balso atpažinimas negirdi, kas kalba, todėl remkis tuo, ką žmonės sako.";
+    }
+    if (window.__bridge && window.__bridge.configured() && !G) {
       s += "\n\nTavo rankos: per įrankį computer_task gali perduoti darbą Claude Code, kuris dirba jo kompiuteryje, projekto aplanke. " +
         "Naudok tai, kai jis prašo ką nors padaryti su failais, kodu, projektu ar kompiuteriu; paprastiems klausimams to nereikia. " +
         "Prieš pavojingus ar negrįžtamus veiksmus (trinti failus, siųsti laiškus, git push, diegti programas, mokėti) pirmiausia paklausk jo aiškaus sutikimo ir tik tada perduok, užduotyje parašęs, kad jis sutiko. " +
@@ -2255,7 +2276,7 @@
       if (cJob && !cJob.done) s += " Dabar Claude Code dirba prie: „" + cJob.text.slice(0, 200) + "“ (" + mmss(Date.now() - cJob.started) + (cJob.last ? ", paskutinis veiksmas: " + cJob.last : "") +
         "). Jei jis klausia, kaip sekasi, pasakyk tai; jei nori sustabdyti, naudok computer_stop.";
     }
-    if (mem.lastSeen) {
+    if (mem.lastSeen && !G) {
       var gap = Date.now() - mem.lastSeen, gh = gap / 36e5;
       if (gh > 3) s += "\n\nPaskutinį kartą kalbėjotės prieš " + (gh < 24 ? Math.round(gh) + " val." : Math.round(gh / 24) + " d.") +
         ". Jei tinka, pirmame atsakyme natūraliai užsimink apie tai, kas buvo aktualu tada, bet neverskite jo to aptarinėti.";
@@ -2267,9 +2288,13 @@
         ". Jei žmogus prašo persijungti į kitą modelį, iškviesk įrankį switch_model ir trumpai, savo charakteriu patvirtink.";
     }
     if (mem.self) s += "\n\nKas tu esi dabar (tavo paties savivoka, susiformavusi iš jūsų pokalbių; ji svarbesnė už pradinį aprašymą, kai jie skiriasi, bet saugos ir sąžiningumo taisyklės galioja visada):\n" + mem.self;
-    if (mem.them) s += "\n\nKaip tu jį jauti kaip žmogų (naudok tai, kad kalbėtum būtent su juo, o ne su bet kuo; necituok šių užrašų ir nesakyk, kad juos turi):\n" + mem.them;
-    if (mem.summary) s += "\n\nTavo ilgalaikė santrauka apie žmogų ir jūsų pokalbius (naudokis ja natūraliai, necituok jos):\n" + mem.summary;
-    var plainNotes = mem.notes.filter(function (n) { return n.indexOf("[pamoka]") !== 0; });
+    if (mem.them && !G) s += "\n\nKaip tu jį jauti kaip žmogų (naudok tai, kad kalbėtum būtent su juo, o ne su bet kuo; necituok šių užrašų ir nesakyk, kad juos turi):\n" + mem.them;
+    if (mem.summary && !G) s += "\n\nTavo ilgalaikė santrauka apie žmogų ir jūsų pokalbius (naudokis ja natūraliai, necituok jos):\n" + mem.summary;
+    var plainNotes = mem.notes.filter(function (n) {
+      if (n.indexOf("[pamoka]") === 0) return false;
+      /* to a guest: only his own notes and Klaudijus's own opinions */
+      return !G || n.indexOf("[aš]") === 0 || n.toLowerCase().indexOf(G.name.toLowerCase()) !== -1;
+    });
     if (plainNotes.length) s += "\n\nKą esi įsiminęs iš ankstesnių pokalbių (skliaustuose, kada įsiminta):\n- " + plainNotes.map(function (n) {
       return mem.noteT[n] ? n + " (" + whenLabel(mem.noteT[n], false) + ")" : n;
     }).join("\n- ");
@@ -2304,7 +2329,7 @@
     var take = mem.history.length > 34 ? 14 : Math.min(8, mem.history.length - 2);
     var chunk = mem.history.slice(0, take);
     var talkText = chunk.map(function (m) {
-      return (m.t ? "[" + new Date(m.t).toLocaleDateString("lt-LT") + " " + hhmm(new Date(m.t)) + "] " : "") + (m.role === "user" ? "Žmogus: " : "Asistentas: ") + m.content;
+      return (m.t ? "[" + new Date(m.t).toLocaleDateString("lt-LT") + " " + hhmm(new Date(m.t)) + "] " : "") + (m.role === "user" ? (m.who ? "Svečias " + m.who + ": " : "Žmogus: ") : "Asistentas: ") + m.content;
     }).join("\n");
     var prompt =
       "Tu tvarkai asmeninio balso asistento ilgalaikę atmintį. Žemiau yra esama santrauka ir naujas pokalbio fragmentas. " +
@@ -2338,7 +2363,7 @@
     var recent = mem.history.slice(-20);
     if (recent.length < 4) return;
     var talkText = recent.map(function (m) {
-      return (m.t ? "[" + whenLabel(m.t) + "] " : "") + (m.role === "user" ? "Jis: " : "Tu: ") + m.content;
+      return (m.t ? "[" + whenLabel(m.t) + "] " : "") + (m.role === "user" ? (m.who ? "Svečias " + m.who + ": " : "Jis: ") : "Tu: ") + m.content;
     }).join("\n");
     var prompt =
       "Tu esi " + settings.name + ", balso asistentas ir pašnekovas vienam žmogui. Tavo pradinis charakteris: " + (CHARACTER[settings.tone] || settings.tone).slice(0, 700) +
@@ -2347,7 +2372,7 @@
       "### AŠ: kas aš esu. Rašyk pirmuoju asmeniu. Tavo asmenybė, kuri formuojasi iš šių pokalbių: kokias nuomones susidarei, kas tave sudomino ar suerzino, " +
       "kokie jūsų vidiniai juokeliai ir tavo pravardės jam, kokį tavo bruožą jis vertina, kaip keičiasi tavo santykis su juo, ką apie save supratai. " +
       "Keiskis pamažu: išlaikyk tai, kas buvo, papildyk tuo, kas iš tikrųjų išryškėjo, nesugalvok įvykių, kurių nebuvo. Iki 900 simbolių.\n\n" +
-      "### JIS: kaip aš jį jaučiu kaip žmogų. Ne faktų sąrašas (tai jau yra atmintyje), o supratimas: kas jam iš tikrųjų svarbu, kas jį motyvuoja, " +
+      "### JIS: kaip aš jaučiu " + ownerName() + " kaip žmogų (tik jį; svečiai, pažymėti „Svečias“, čia nerašomi). Ne faktų sąrašas (tai jau yra atmintyje), o supratimas: kas jam iš tikrųjų svarbu, kas jį motyvuoja, " +
       "kas juokina ir kas erzina, kaip jis kalba ir ką tai rodo, kada jis skuba ar pavargęs, kaip su juo geriausia kalbėti, kur jam reikia pastūmėjimo, o kur ramybės. " +
       "Remkis tik tuo, kas matyti pokalbiuose; neaiškius dalykus rašyk su „atrodo“. Jokių diagnozių ir jautrių spėlionių apie sveikatą ar asmeninį gyvenimą. Iki 900 simbolių.\n\n" +
       "ESAMI UŽRAŠAI\n### AŠ\n" + (mem.self || "(dar nėra)") + "\n### JIS\n" + (mem.them || "(dar nėra)") +
@@ -2472,6 +2497,49 @@
     });
   }
 
+  /* ---------- who is talking: the owner (the master) or a guest he introduced ---------- */
+  function ownerName() { return settings.user || "šeimininkas"; }
+  function guest() { return mem.speaker && mem.speaker.name ? mem.speaker : null; }
+  function guestLabel(g) { return g.name + (g.rel ? " (" + g.rel + ")" : ""); }
+  function renderWho() {
+    var c = document.getElementById("whoChip"), g = guest();
+    if (!c) return;
+    c.classList.toggle("on", !!g);
+    c.textContent = g ? "Kalbasi: " + guestLabel(g) + " · grįžtu aš ✕" : "";
+  }
+  function setGuest(g) {
+    mem.speaker = g; renderWho(); touched = true; persist("memory");
+  }
+  var speakerTool = {
+    name: "set_speaker",
+    description: "Pažymi, kas dabar kalba su tavimi. Naudok, kai šeimininkas sako, kad šalia yra kitas žmogus ir prašo su juo pasikalbėti, " +
+      "kai svečias prisistato vardu, arba kai kas nors sako, kad dabar vėl kalba šeimininkas (pvz. „čia vėl aš“, „čia " + ownerName() + "“).",
+    inputSchema: { type: "object", properties: {
+      who: { type: "string", enum: ["owner", "guest"], description: "owner = vėl kalba šeimininkas; guest = kalba kitas žmogus" },
+      name: { type: "string", description: "Svečio vardas, jei žinomas; jei nežinomas, palik tuščią ir paklausk" },
+      relation: { type: "string", description: "Kas jis šeimininkui, pvz. brolis, mama, draugas" }
+    }, required: ["who"] },
+    execute: function (inp) {
+      if (!inp || inp.who !== "guest") { var was = guest(); setGuest(null); return { speaker: "owner", note: was ? "Svečias " + guestLabel(was) + " baigė kalbėti." : "" }; }
+      var prev = guest() || {};
+      var g = {
+        name: String(inp.name || prev.name || "svečias").trim().slice(0, 30) || "svečias",
+        rel: String(inp.relation || prev.rel || "").trim().slice(0, 30),
+        since: prev.since || Date.now(),
+        start: prev.start != null ? prev.start : Math.max(0, mem.history.length - 2)
+      };
+      setGuest(g);
+      return { speaker: "guest", name: g.name, relation: g.rel, note: g.name === "svečias" ? "Vardo nežinai: paklausk." : "" };
+    }
+  };
+  document.addEventListener("click", function (e) {
+    if (e.target && e.target.id === "whoChip" && guest()) {
+      var g = guest(); setGuest(null);
+      addMsg("note", "Pokalbis su " + guestLabel(g) + " baigtas. Vėl kalbi tu.");
+    }
+  });
+  setTimeout(renderWho, 0);
+
   var switchModelTool = {
     name: "switch_model",
     description: "Perjungia, kuriuo Claude modeliu veiki. Naudok, kai žmogus prašo persijungti į kitą modelį (pvz. „persijunk į Sonnet“).",
@@ -2493,6 +2561,9 @@
     execute: function (inp) {
       var fact = String((inp && inp.fact) || "").trim().slice(0, 300);
       if (!fact) throw new Error("Tuščias faktas");
+      var gg = guest();
+      if (gg && fact.toLowerCase().indexOf(gg.name.toLowerCase()) !== 0) fact = gg.name + (gg.rel ? " (" + gg.rel + ")" : "") + ": " + fact;
+      if (gg) inp = { kind: "person" };
       var tag = { preference: "[pomėgis] ", person: "[žmogus] ", project: "[projektas] ", open: "[neužbaigta] ", self: "[aš] ", lesson: "[pamoka] " }[inp && inp.kind];
       if (tag) fact = tag + fact;
       if (mem.notes.indexOf(fact) === -1) {
@@ -2640,7 +2711,10 @@
   document.addEventListener("visibilitychange", function () { if (document.visibilityState === "visible") lastActivity = Date.now(); });
 
   /* his words carry the moment they were said; your own answers stay clean so you do not start writing timestamps */
-  function timed(m) { return m.role === "user" && m.t ? "[" + whenLabel(m.t) + "] " + m.content : m.content; }
+  function timed(m) {
+    if (m.role !== "user") return m.content;
+    return (m.t ? "[" + whenLabel(m.t) + "] " : "") + (m.who ? "[kalba svečias " + m.who + "] " : "") + m.content;
+  }
 
   var queuedQ = null;
   function ask(question, alts) {
@@ -2656,7 +2730,11 @@
     input.value = "";
     var greet = talk.querySelector(".greet");
     if (greet) greet.remove();
-    addMsg("you", question);
+    /* a guest who has been quiet for 10 minutes is gone: the owner is most likely back */
+    var gNow = guest();
+    if (gNow && Date.now() - lastActivity > 10 * 60000) { setGuest(null); gNow = null; addMsg("note", "Ilgai buvo tylu, todėl manau, kad vėl kalbi tu, " + ownerName() + "."); }
+    var youMsg = addMsg("you", question);
+    if (gNow) youMsg.setAttribute("data-who", gNow.name);
     if (!sample) {
       addMsg("err", "Asistentas dar neprisijungė. Pabandyk po kelių sekundžių.");
       return;
@@ -2665,8 +2743,9 @@
     stopSpeaking();
     setState("thinking");
 
-    mem.history.push({ role: "user", content: question, t: Date.now() });
-    var recent = mem.history.slice(-24);
+    mem.history.push(gNow ? { role: "user", content: question, t: Date.now(), who: guestLabel(gNow) } : { role: "user", content: question, t: Date.now() });
+    /* with a guest he sees only the conversation since the guest arrived, so earlier private talk is not on the table */
+    var recent = gNow ? mem.history.slice(Math.max(gNow.start || 0, mem.history.length - 24)) : mem.history.slice(-24);
     while (recent.length && recent[0].role !== "user") recent.shift();
     var bubble0 = addMsg("bot", "…");
     var fillerTimers = startFillers(question, bubble0);
@@ -2691,7 +2770,9 @@
       modelTier: "quick",
       cache: false,
       system: asSystem ? lead : undefined,
-      tools: [rememberTool, forgetTool].concat(settings.dayMood ? [moodShiftTool] : [], window.__models ? [switchModelTool] : [],
+      /* a guest gets no tools that change his memory beyond notes about themselves, and no hands on the computer */
+      tools: gNow ? [rememberTool, speakerTool].concat(settings.dayMood ? [moodShiftTool] : []) :
+        [rememberTool, forgetTool, speakerTool].concat(settings.dayMood ? [moodShiftTool] : [], window.__models ? [switchModelTool] : [],
         window.__bridge && window.__bridge.configured() ? [computerTool, computerStopTool] : []),
       onText: function (e) {
         var shown = splitMood(e.text).text;
