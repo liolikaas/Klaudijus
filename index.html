@@ -1384,7 +1384,7 @@
 
   /* ---------- settings and memory ---------- */
   var settings = { name: "Asistentas", tone: "draugiškai ir šiltai", about: "", voice: "buttery", rate: 1, handsfree: false, theme: "auto", ambient: true, voiceOn: true, narrate: true, user: "", rules: DEFAULT_RULES, phrases: DEFAULT_PHRASES, swears: DEFAULT_SWEARS, persona: DEFAULT_PERSONA, dayMood: true, nudge: "15", grid: true, face: true, muse: true, chat: true, info: !narrow() };
-  var mem = { notes: [], history: [], summary: "", summaryAt: 0, lastSeen: 0, liked: [], disliked: [], noteT: {}, recentOpen: [], self: "", them: "", sinceReflect: 0, reflectAt: 0, speaker: null, pro: null, curious: [], curDay: null, sinceCur: 0, bets: [], goals: [], musing: null, museTry: null, day: null, salt: Math.floor(Math.random() * 1e9) };
+  var mem = { notes: [], history: [], summary: "", summaryAt: 0, lastSeen: 0, liked: [], disliked: [], noteT: {}, recentOpen: [], self: "", them: "", sinceReflect: 0, reflectAt: 0, speaker: null, pro: null, fixes: [], curious: [], curDay: null, sinceCur: 0, bets: [], goals: [], musing: null, museTry: null, day: null, salt: Math.floor(Math.random() * 1e9) };
   var LS = "asist.v2", touched = false;
 
   function takeSettings(d) {
@@ -1440,6 +1440,7 @@
     if (d.musing && typeof d.musing.text === "string") mem.musing = d.musing;
     if (d.museTry && typeof d.museTry.d === "string") mem.museTry = d.museTry;
     if (d.pro && typeof d.pro.d === "string") mem.pro = d.pro;
+    if (Array.isArray(d.fixes)) mem.fixes = d.fixes.filter(function (x) { return x && typeof x.better === "string"; }).slice(-6);
     if (typeof d.them === "string") mem.them = d.them.slice(0, 1800);
     if (typeof d.sinceReflect === "number") mem.sinceReflect = d.sinceReflect;
     if (typeof d.reflectAt === "number") mem.reflectAt = d.reflectAt;
@@ -2267,8 +2268,11 @@
         (mem.day.told ? "" : " Šiandien apie savo nuotaiką dar nieko nesakei: šiame atsakyme vienu trumpu sakiniu, savo stiliumi, natūraliai užsimink, kokios tu šiandien nuotaikos.");
     }
     var lessons = mem.notes.filter(function (n) { return n.indexOf("[pamoka]") === 0; });
+    if (!G) s += "\n\nJis gali tave mokyti balsu: kai jis sako „išmok posakį / keiksmą…“, „nebesakyk…“, „nuo šiol visada / niekada…“, „tu esi… / tau patinka…“ ar „taip turėjai atsakyti…“, naudok įrankį teach ir vienu sakiniu pakartok, ką supratai.";
     if (mem.liked.length && !G) s += "\n\nAtsakymai, kurie jam ypač patiko (tai tavo stiliaus orientyrai, nekartok jų pažodžiui):\n" +
       mem.liked.slice(-3).map(function (x) { return "- Jis: „" + x.q + "“ → Tu: „" + x.a + "“" + (x.why ? " (patiko: " + x.why + ")" : ""); }).join("\n");
+    if (mem.fixes.length && !G) s += "\n\nJo pataisymai: taip TURĖJAI atsakyti (tai stipriausi tavo stiliaus pavyzdžiai; perimk jų toną, ritmą ir žodyną, bet nekartok pažodžiui):\n" +
+      mem.fixes.slice(-4).map(function (f) { return "- " + (f.q ? "Jis: „" + f.q + "“ → " : "") + (f.old ? "ne „" + f.old + "“, o „" + f.better + "“" : "„" + f.better + "“"); }).join("\n");
     if (mem.disliked.length && !G) s += "\n\nAtsakymai, kurie jam nepatiko (taip nebedaryk):\n" +
       mem.disliked.slice(-2).map(function (x) { return "- Jis: „" + x.q + "“ → Tu: „" + x.a + "“" + (x.why ? " (nepatiko: " + x.why + ")" : ""); }).join("\n");
     if (lessons.length) s += "\n\nSvarbiausia: ko išmokai iš jo įvertinimų (šios pamokos svarbesnės už bendras taisykles):\n" + lessons.map(function (l) { return "- " + l.replace(/^\[pamoka\]\s*/, ""); }).join("\n");
@@ -2888,6 +2892,55 @@
   setTimeout(renderLife, 0);
   setInterval(function () { maybeMuse(); }, 60000);
 
+  /* ---------- teaching by voice: only the owner can change who he is ---------- */
+  function lines(txt) { return String(txt || "").split(/\n+/).map(function (x) { return x.trim(); }).filter(Boolean); }
+  function refreshTaughtFields() {
+    try { setRules.value = settings.rules; $("setPhrases").value = settings.phrases; $("setSwears").value = settings.swears; $("setPersona").value = settings.persona; } catch (e) {}
+  }
+  var teachTool = {
+    name: "teach",
+    description: "Šeimininkas tave moko balsu. what=phrase: senoviškas posakis ar žodis tavo žodynui; what=swear: keiksmažodis ar pravardė; what=rule: taisyklė („nuo šiol visada / niekada…“); " +
+      "what=persona: tavo asmenybės bruožas („tu esi…“, „tau patinka…“); what=correction: kaip turėjai atsakyti į ankstesnį jo klausimą (text = geresnis atsakymas, old = tavo blogas atsakymas trumpai). " +
+      "action=add prideda, action=remove išbraukia (text = ką išbraukti). Po to vienu sakiniu, savo stiliumi pakartok, ką supratai.",
+    inputSchema: { type: "object", properties: {
+      what: { type: "string", enum: ["phrase", "swear", "rule", "persona", "correction"] },
+      action: { type: "string", enum: ["add", "remove"] },
+      text: { type: "string" },
+      old: { type: "string", description: "correction: į ką ir kaip atsakei anksčiau" }
+    }, required: ["what", "text"] },
+    execute: function (inp) {
+      if (guest()) return { error: "Mokyti tave gali tik šeimininkas" };
+      inp = inp || {};
+      var text = String(inp.text || "").trim().slice(0, 400), rm = inp.action === "remove";
+      if (!text) return { error: "Tuščia" };
+      if (inp.what === "correction") {
+        var lastQ = mem.history.filter(function (m) { return m.role === "user"; }).slice(-2)[0];
+        mem.fixes.push({ q: lastQ ? String(lastQ.content).slice(0, 160) : "", old: String(inp.old || "").slice(0, 240), better: text, t: Date.now() });
+        mem.fixes = mem.fixes.slice(-6);
+        persist("memory");
+        return { ok: true, note: "Įsiminta kaip pavyzdys, kaip turi skambėti" };
+      }
+      var key = { phrase: "phrases", swear: "swears", rule: "rules", persona: "persona" }[inp.what];
+      if (!key) return { error: "Nežinoma" };
+      var cur = lines(settings[key]), low = text.toLowerCase();
+      if (rm) {
+        var before = cur.length;
+        cur = cur.filter(function (l) { return l.toLowerCase().indexOf(low) === -1 && low.indexOf(l.toLowerCase()) === -1; });
+        if (cur.length === before) return { error: "Nieko tokio neradau", have: cur.slice(0, 40) };
+      } else {
+        if (key === "rules" && !/^-/.test(text)) text = "- " + text;
+        if (cur.map(function (l) { return l.toLowerCase(); }).indexOf(text.toLowerCase()) === -1) cur.push(text);
+      }
+      var limit = { phrases: 2500, swears: 2000, rules: 1200, persona: 2000 }[key];
+      while (cur.join("\n").length > limit && cur.length > 1) cur.shift();
+      settings[key] = cur.join("\n");
+      if (drafting && snap) snap.settings[key] = settings[key];
+      refreshTaughtFields();
+      persist("settings");
+      return { ok: true, count: cur.length };
+    }
+  };
+
   var switchModelTool = {
     name: "switch_model",
     description: "Perjungia, kuriuo Claude modeliu veiki. Naudok, kai žmogus prašo persijungti į kitą modelį (pvz. „persijunk į Sonnet“).",
@@ -3124,7 +3177,7 @@
       system: asSystem ? lead : undefined,
       /* a guest gets no tools that change his memory beyond notes about themselves, and no hands on the computer */
       tools: gNow ? [rememberTool, speakerTool, betTool].concat(settings.dayMood ? [moodShiftTool] : []) :
-        [rememberTool, forgetTool, speakerTool, betTool, goalTool, curiosityTool, museDoneTool].concat(settings.dayMood ? [moodShiftTool] : [], window.__models ? [switchModelTool] : [],
+        [rememberTool, forgetTool, speakerTool, betTool, goalTool, curiosityTool, museDoneTool, teachTool].concat(settings.dayMood ? [moodShiftTool] : [], window.__models ? [switchModelTool] : [],
         window.__bridge && window.__bridge.configured() ? [computerTool, computerStopTool] : []),
       onText: function (e) {
         var shown = splitMood(e.text).text;
