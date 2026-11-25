@@ -479,7 +479,6 @@
       </select>
 
       <label class="check"><input type="checkbox" id="setFace"> <span>Veidas: kai jis kalba, iš sferos išnyra žmogaus veidas</span></label>
-      <label class="check"><input type="checkbox" id="setGrid"> <span>Erdvėlaikio tinklelis: rodyti, kaip sferos masė išlenkia erdvę</span></label>
       <label class="check"><input type="checkbox" id="setAmbient"> <span>Namų ekranas: po minutės ramybės rodau laikrodį</span></label>
 
       <label class="check" id="handsRow"><input type="checkbox" id="setHands"> <span>Rankų laisvė: po atsakymo vėl klausausi, o padiktuotą tekstą išsiunčiu pats po pauzės</span></label>
@@ -1383,7 +1382,7 @@
   }
 
   /* ---------- settings and memory ---------- */
-  var settings = { name: "Asistentas", tone: "draugiškai ir šiltai", about: "", voice: "buttery", rate: 1, handsfree: false, theme: "auto", ambient: true, voiceOn: true, narrate: true, user: "", rules: DEFAULT_RULES, phrases: DEFAULT_PHRASES, swears: DEFAULT_SWEARS, persona: DEFAULT_PERSONA, dayMood: true, nudge: "15", grid: true, face: true, muse: true, chat: true, info: !narrow() };
+  var settings = { name: "Asistentas", tone: "draugiškai ir šiltai", about: "", voice: "buttery", rate: 1, handsfree: false, theme: "auto", ambient: true, voiceOn: true, narrate: true, user: "", rules: DEFAULT_RULES, phrases: DEFAULT_PHRASES, swears: DEFAULT_SWEARS, persona: DEFAULT_PERSONA, dayMood: true, nudge: "15", face: true, muse: true, chat: true, info: !narrow() };
   var mem = { notes: [], history: [], summary: "", summaryAt: 0, lastSeen: 0, liked: [], disliked: [], noteT: {}, recentOpen: [], self: "", them: "", sinceReflect: 0, reflectAt: 0, speaker: null, pro: null, fixes: [], curious: [], curDay: null, sinceCur: 0, bets: [], goals: [], musing: null, museTry: null, day: null, salt: Math.floor(Math.random() * 1e9) };
   var LS = "asist.v2", touched = false;
 
@@ -1397,7 +1396,6 @@
     settings.handsfree = !!d.handsfree;
     if (typeof d.theme === "string" && setTheme.querySelector('option[value="' + d.theme + '"]')) settings.theme = d.theme;
     if (typeof d.ambient === "boolean") settings.ambient = d.ambient;
-    if (typeof d.grid === "boolean") settings.grid = d.grid;
     if (typeof d.face === "boolean") settings.face = d.face;
     if (typeof d.muse === "boolean") settings.muse = d.muse;
     if (typeof d.voiceOn === "boolean") settings.voiceOn = d.voiceOn;
@@ -1567,7 +1565,6 @@
     rateIn.value = String(settings.rate);
     setTheme.value = settings.theme;
     setAmbient.checked = settings.ambient;
-    $("setGrid").checked = settings.grid !== false;
     $("setFace").checked = settings.face !== false;
     $("setMuse").checked = settings.muse !== false;
     $("setVoiceOn").checked = settings.voiceOn;
@@ -1632,7 +1629,6 @@
   setRules.addEventListener("change", function () { settings.rules = setRules.value.trim(); persist("settings"); });
   $("setMuse").addEventListener("change", function () { settings.muse = $("setMuse").checked; persist("settings"); });
   $("setFace").addEventListener("change", function () { settings.face = $("setFace").checked; persist("settings"); });
-  $("setGrid").addEventListener("change", function () { settings.grid = $("setGrid").checked; persist("settings"); });
   $("setDayMood").addEventListener("change", function () { settings.dayMood = $("setDayMood").checked; persist("settings"); renderDayMood(); });
   $("setNudge").addEventListener("change", function () { settings.nudge = $("setNudge").value; persist("settings"); });
   $("setSwears").addEventListener("change", function () { settings.swears = $("setSwears").value.trim(); persist("settings"); });
@@ -3540,45 +3536,6 @@
     }
   }
 
-  /* space-time: a sheet that sags under the sphere's mass (deeper while he speaks or thinks) */
-  function drawSpacetime(cx, cy, R, t) {
-    var pitch = 0.42 + par.y * 0.12, cp = Math.cos(pitch), sp = Math.sin(pitch), P = 4.6;
-    var depthK = 1.1;
-    var col = blend(blend(ICE, TEAL, 0.4), [255, 255, 255], 0.25);
-    function pt(u, v) {
-      var r2 = u * u + v * v, Y = 0.35 + depthK / Math.sqrt(r2 + 0.55) + 0.03 * Math.sin(Math.sqrt(r2) * 1.6 - t * 0.5);
-      var yy = Y * cp - v * sp, z = Y * sp + v * cp, sc = P / (P + z);
-      if (P + z < 0.6) return null;
-      return [cx + (u - par.x * 0.5) * R * sc, cy + yy * R * sc, Math.sqrt(r2), z];
-    }
-    /* segments are grouped by brightness, so the whole sheet takes a handful of strokes */
-    var buckets = [[], [], [], [], [], []];
-    for (var dir = 0; dir < 2; dir++) {
-      for (var L = -9; L <= 9; L++) {
-        var fixed = L * 0.75, prev = null;
-        for (var k = 0; k <= 48; k++) {
-          var w = -9 * 0.75 + k * (18 * 0.75 / 48);
-          var q = dir ? pt(fixed, w) : pt(w, fixed);
-          if (q && prev) {
-            var near = Math.max(0, 1 - q[2] / 7), a = (0.035 + 0.26 * Math.pow(near, 1.5)) * Math.max(0, Math.min(1, 1 - q[3] / 7));
-            var bi = Math.min(5, Math.floor(a / 0.05));
-            if (a > 0.006) buckets[bi].push(prev[0], prev[1], q[0], q[1]);
-          }
-          prev = q;
-        }
-      }
-    }
-    ctx.lineWidth = 0.8;
-    for (var bi = 0; bi < 6; bi++) {
-      var seg = buckets[bi];
-      if (!seg.length) continue;
-      ctx.strokeStyle = rgba(col, (bi + 0.5) * 0.05);
-      ctx.beginPath();
-      for (var j = 0; j < seg.length; j += 4) { ctx.moveTo(seg[j], seg[j + 1]); ctx.lineTo(seg[j + 2], seg[j + 3]); }
-      ctx.stroke();
-    }
-  }
-
   var meteors = [], nextMeteor = 2500;
 
   /* corona rays that follow the voice */
@@ -3955,8 +3912,6 @@
         ctx.beginPath(); ctx.moveTo(L.x2 - L.tx * ln2 / 2, L.y2 - L.ty * ln2 / 2); ctx.lineTo(L.x2 + L.tx * ln2 / 2, L.y2 + L.ty * ln2 / 2); ctx.stroke();
       }
     }
-
-    if (settings.grid !== false) drawSpacetime(cx, cy, R, t);
 
     /* nebula clouds, bent by the lens */
     ctx.globalCompositeOperation = "lighter";
