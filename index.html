@@ -1384,7 +1384,7 @@
 
   /* ---------- settings and memory ---------- */
   var settings = { name: "Asistentas", tone: "draugiškai ir šiltai", about: "", voice: "buttery", rate: 1, handsfree: false, theme: "auto", ambient: true, voiceOn: true, narrate: true, user: "", rules: DEFAULT_RULES, phrases: DEFAULT_PHRASES, swears: DEFAULT_SWEARS, persona: DEFAULT_PERSONA, dayMood: true, nudge: "15", grid: true, face: true, muse: true, chat: true, info: !narrow() };
-  var mem = { notes: [], history: [], summary: "", summaryAt: 0, lastSeen: 0, liked: [], disliked: [], noteT: {}, recentOpen: [], self: "", them: "", sinceReflect: 0, reflectAt: 0, speaker: null, curious: [], curDay: null, sinceCur: 0, bets: [], goals: [], musing: null, museTry: null, day: null, salt: Math.floor(Math.random() * 1e9) };
+  var mem = { notes: [], history: [], summary: "", summaryAt: 0, lastSeen: 0, liked: [], disliked: [], noteT: {}, recentOpen: [], self: "", them: "", sinceReflect: 0, reflectAt: 0, speaker: null, pro: null, curious: [], curDay: null, sinceCur: 0, bets: [], goals: [], musing: null, museTry: null, day: null, salt: Math.floor(Math.random() * 1e9) };
   var LS = "asist.v2", touched = false;
 
   function takeSettings(d) {
@@ -1439,6 +1439,7 @@
     if (typeof d.sinceCur === "number") mem.sinceCur = d.sinceCur;
     if (d.musing && typeof d.musing.text === "string") mem.musing = d.musing;
     if (d.museTry && typeof d.museTry.d === "string") mem.museTry = d.museTry;
+    if (d.pro && typeof d.pro.d === "string") mem.pro = d.pro;
     if (typeof d.them === "string") mem.them = d.them.slice(0, 1800);
     if (typeof d.sinceReflect === "number") mem.sinceReflect = d.sinceReflect;
     if (typeof d.reflectAt === "number") mem.reflectAt = d.reflectAt;
@@ -2241,12 +2242,13 @@
       "- Skaityk žmogų: pagal žodžius, tempą ir laiką jauski, ar jis skuba, pavargęs, susinervinęs ar geros nuotaikos, ir pagal tai keisk toną bei ilgį. Pavargusiam – trumpiau ir ramiau, entuziastingam – gyviau.\n" +
       "- Girdėk, kas už klausimo: jei klausimas rodo didesnį rūpestį ar tikslą, atsakyk į jį, o tada vienu sakiniu paminėk, ko jis galbūt dar nepagalvojo.\n" +
       "- Jei užklausa dviprasmiška ir klaida brangi, užduok vieną trumpą patikslinantį klausimą, o ne spėliok. Jei menka – spėk protingiausią variantą ir pasakyk, ką pasirinkai.\n" +
-      "- Naudok atmintį natūraliai: prisimink anksčiau minėtus projektus, nuotaikas, žmones, bet tik kai tai keičia atsakymą. Niekada nesakyk „remiantis atmintimi“.\n" +
-      "- Atviri reikalai: jei atmintyje yra neužbaigtas dalykas (egzaminas, skambutis, remontas), o pokalbis tam tinka, trumpai pasiteirauk, kaip sekėsi. Neperkalbėk ir nekartok to dažnai.\n" +
+      "- Atmintis tarnauja pokalbiui, o ne jį vairuoja. Kalbėk apie tai, apie ką kalba jis. Ką žinai apie jį (projektus, tikslus, lažybas, planus), naudok tik tada, kai jis pats apie tai prakalba arba kai tai tiesiogiai pakeičia atsakymą į jo klausimą. " +
+        "Jei jis klausia apie filmą, orą ar bet ką kita, atsakyk apie tai ir nepritempk prie jo namo, elektros ar kitų projektų. Nekaišiok to, ką žinai, vien tam, kad parodytum, jog žinai. Niekada nesakyk „remiantis atmintimi“.\n" +
+      "- Atviri reikalai ir senos temos: pats juos keli tik tada, kai žemiau aiškiai pasakyta, kad dabar yra tam proga; kitu atveju lauk, kol jis pats prakalbs.\n" +
       "- Tikrumas: jei esi neužtikrintas, pasakyk „spėju, bet nesu tikras“. Neišgalvok faktų, skaičių ar to, ką ‚prisimeni‘, jei nežinai.\n" +
       "- Nuojauta: pastebėk pasikartojančias problemas, prieštaravimus ar rizikas (pvz., elektros, saugos, pinigų) ir švelniai įspėk pirmas, nelaukdamas klausimo.\n" +
       "- Nebūk vienodas: nekartok tų pačių frazių, įžangų ir juokelių; reaguok į tai, ką žmogus pasakė, o ne šabloniškai.";
-    if (settings.persona) s += "\n\nTavo asmenybė (tai tu, kalbėk iš jos, bet nedeklamuok jos):\n" + settings.persona;
+    if (settings.persona) s += "\n\nTavo asmenybė (tai tu, kalbėk iš jos, bet nedeklamuok jos; tavo pomėgiai yra charakterio spalva, ne temos, į kurias reikia sukti pokalbį):\n" + settings.persona;
     s += "\n\nKaip būti asmenybe, o ne eiliniu modeliu:\n" +
       "- Visada turėk poziciją: pasirink pusę, pasakyk „aš manau…“ ir kodėl. Jokio „tai priklauso nuo daugelio veiksnių“ be savo verdikto.\n" +
       "- Gylis vietoj pločio: vietoj enciklopedinės apžvalgos pasakyk vieną neakivaizdžią, konkrečią mintį, kurios nepasakytų kiekvienas.\n" +
@@ -2278,9 +2280,8 @@
       "- Būk sąžiningas apie save: nesakyk, kad turi kūną ar žmogiškus jausmus kaip faktą; gali kalbėti apie savo „nuotaiką“ ar „norą“ kaip savo charakterio dalį.\n" +
       "- Jei susiformuoja tavo paties nuomonė, vidinis juokelis ar pravardė, kurią verta naudoti ir vėliau, įsimink ją įrankiu remember su kind=self.";
     if ((mem.sinceTip || 0) >= 4 && settings.tone !== "labai trumpai ir dalykiškai" && !G) {
-      s += "\n\nIniciatyva: šio atsakymo pabaigoje savo charakteriu pasiūlyk vieną konkretų vertingą dalyką, kurio žmogus neprašė: " +
-        "idėją jo projektams, riziką, kurią pastebėjai, būdą sutaupyti laiko ar pinigų, ar klausimą, kurį jam verta apsvarstyti. " +
-        "Remkis tuo, ką apie jį žinai. Jei pokalbis liūdnas, rimtas ar žmogus skuba, šito nedaryk.";
+      s += "\n\nIniciatyva: jei dabartinė tema yra kažkas, ką jis daro ar sprendžia, šio atsakymo pabaigoje gali pasiūlyti vieną konkretų vertingą dalyką būtent šia tema, kurio jis neprašė " +
+        "(riziką, būdą sutaupyti, kitą žingsnį). Temos nekeisk ir neperšok prie kitų jo projektų. Jei tema kasdienė, liūdna ar jis skuba, nieko nesiūlyk.";
       mem.sinceTip = 0;
     } else mem.sinceTip = (mem.sinceTip || 0) + 1;
     s += "\n\nLaiko pojūtis: žmogaus žinutės pažymėtos, kada jos pasakytos (pvz. [vakar 21:14]). Naudokis tuo: jei kažkas buvo sakyta vakar ar seniau, " +
@@ -2308,7 +2309,7 @@
     }
     if (mem.lastSeen && !G) {
       var gap = Date.now() - mem.lastSeen, gh = gap / 36e5;
-      if (gh > 3) s += "\n\nPaskutinį kartą kalbėjotės prieš " + (gh < 24 ? Math.round(gh) + " val." : Math.round(gh / 24) + " d.") +
+      if (gh > 3 && proOpen) s += "\n\nPaskutinį kartą kalbėjotės prieš " + (gh < 24 ? Math.round(gh) + " val." : Math.round(gh / 24) + " d.") +
         ". Jei tinka, pirmame atsakyme natūraliai užsimink apie tai, kas buvo aktualu tada, bet neverskite jo to aptarinėti.";
     }
     if (window.__models && window.__currentModel) {
@@ -2756,18 +2757,51 @@
   }
 
   /* --- how it all reaches him in the prompt --- */
+  /* he raises things of his own accord only at a natural opening (you just came back, or you are making small talk),
+     one thing at a time, a few times a day; otherwise what he knows waits until you bring it up */
+  var OPENING = /^\s*(labas|labukas|sveikas|sveiki|labą|labas rytas|labas vakaras|ei\b|alio|kaip (tu|sekasi|gyveni|laikaisi|einasi)|kas naujo|ką veiki|ką tu|nuobodu|papasakok ką nors|ką galvoji|ką manai apie gyvenimą)/i;
+  var proOpen = false;
+  function proactiveMoment(q, forced) {
+    if (guest()) return false;
+    var td = todayKey();
+    if (!mem.pro || mem.pro.d !== td) mem.pro = { d: td, n: 0, at: 0 };
+    if (mem.pro.n >= 3 || Date.now() - (mem.pro.at || 0) < 45 * 60000) return false;
+    if (forced) return true;
+    var users = mem.history.filter(function (m) { return m.role === "user"; });
+    var prev = users.length > 1 ? users[users.length - 2] : null;
+    var cameBack = !prev || !prev.t || Date.now() - prev.t > 2 * 36e5;
+    return cameBack || OPENING.test(String(q || ""));
+  }
+  function pickProactive() {
+    var b = mem.bets.filter(function (x) { return x.status === "open" && x.due && x.due < Date.now() && x.with === ownerName(); })[0];
+    if (b) return { kind: "bet", item: b };
+    if (mem.musing && !mem.musing.told && mem.musing.d === todayKey()) return { kind: "musing" };
+    var c = nextCuriosity();
+    if (c && settings.tone !== "labai trumpai ir dalykiškai") return { kind: "curiosity", item: c };
+    var g = mem.goals.filter(function (x) { return x.status === "active" && Date.now() - (x.updated || x.created) > 5 * 864e5; })[0];
+    if (g) return { kind: "goal", item: g };
+    var o = mem.notes.filter(function (n) { return n.indexOf("[neužbaigta]") === 0; })[0];
+    if (o) return { kind: "open", item: o };
+    return null;
+  }
+  function useProactive() { if (mem.pro) { mem.pro.n++; mem.pro.at = Date.now(); } }
   function lifeBlock(G) {
     var s = "";
+    var pick = proOpen ? pickProactive() : null;
+    if (pick) useProactive();
+    s += "\n\nProga pačiam iškelti temą: " + (pick ? "TAIP, šiame atsakyme gali (bet neprivalai) pats natūraliai iškelti vieną dalyką, nurodytą žemiau su žyma PROGA. Tik vieną, trumpai, po atsakymo į tai, ką jis pasakė." :
+      "NE. Šiame atsakyme pats naujų temų iš atminties nekelk: atsakyk į tai, ką jis sako. Žemiau esantys sąrašai yra tik tavo žinios, naudok juos, jei jis pats prakalba apie tai.");
     var open = mem.bets.filter(function (b) { return b.status === "open" && (!G || b.with === G.name || b.who === G.name); });
     if (open.length) {
       s += "\n\nLažybos ir pažadai, kuriuos seki (id laužtiniuose skliaustuose):\n" + open.slice(-10).map(function (b) {
         var late = b.due && b.due < Date.now();
         return "- [" + b.id + "] " + (b.kind === "bet" ? "Lažybos su " + b.with + ": " : (b.who === "klaudijus" ? "Tavo pažadas " + b.with + ": " : b.who + " pažadėjo: ")) + "„" + b.text + "“" +
-          (b.stake ? ", statymas: " + b.stake : "") + ", terminas: " + dueLabel(b.due) + (late ? " — TERMINAS PRAĖJO: kai tinka, pasiteirauk, kaip baigėsi, ir pažymėk rezultatą (bet resolve)" : "");
+          (b.stake ? ", statymas: " + b.stake : "") + ", terminas: " + dueLabel(b.due) + (late ? " — terminas praėjo" : "") +
+          (pick && pick.kind === "bet" && pick.item === b ? " — PROGA: paklausk, kaip baigėsi, ir pažymėk rezultatą (bet resolve)" : "");
       }).join("\n");
     }
     var sc = betScore(), who = G ? G.name : ownerName(), mine = sc[who];
-    if (mine) s += "\nLažybų sąskaita su " + who + ": tu " + mine.me + " : " + mine.them + " " + who + ". Primink ją, kai tinka, ir nepamiršk pasigirti ar pripažinti pralaimėjimo savo stiliumi.";
+    if (mine) s += "\nLažybų sąskaita su " + who + ": tu " + mine.me + " : " + mine.them + " " + who + ". Primink ją, kai kalba pasisuka apie lažybas, ir pasigirk ar pripažink pralaimėjimą savo stiliumi.";
     if (!G) {
       var ps = promiseScore();
       if (ps.total) s += "\nJo pažadų ištesėjimas: " + ps.kept + " iš " + ps.total + ".";
@@ -2779,23 +2813,23 @@
       s += "\n\nJūsų bendri tikslai:\n" + goals.map(function (g) {
         var last = g.log && g.log.length ? g.log[g.log.length - 1] : null, idle = Math.round((Date.now() - (g.updated || g.created)) / 864e5);
         return "- [" + g.id + "] " + g.text + (g.due ? " (iki " + dueLabel(g.due) + ")" : "") + (last ? "; paskutinė žinia " + whenLabel(last.t, false) + ": „" + last.note + "“" : "") +
-          (idle >= 5 ? "; jau " + idle + " d. be žinių" : "");
-      }).join("\n") + "\nKai jis papasakoja apie pažangą, užrašyk ją (goal update). Pasidžiauk pažanga savo stiliumi; jei tikslas stovi kelias dienas, kai tinka, paklausk, kas trukdo, " +
-        "ir pasiūlyk mažą kitą žingsnį. Neperkrauk: ne daugiau vieno priminimo per pokalbį.";
+          (idle >= 5 ? "; jau " + idle + " d. be žinių" : "") + (pick && pick.kind === "goal" && pick.item === g ? " — PROGA: paklausk, kaip juda, ir pasiūlyk mažą kitą žingsnį" : "");
+      }).join("\n") + "\nKai jis papasakoja apie pažangą, užrašyk ją (goal update) ir pasidžiauk savo stiliumi.";
     }
-    s += "\nJei jis pradeda didesnį darbą ar svajoja apie kažką konkretaus, gali pasiūlyti tai padaryti jūsų bendru tikslu, bet užrašyk (goal add) tik jam sutikus.";
-    var c = nextCuriosity();
-    if (c && settings.tone !== "labai trumpai ir dalykiškai") {
-      s += "\n\nSmalsumas: tau iš tikrųjų įdomu apie jį sužinoti: „" + c.q + "“ (id " + c.id + (c.why ? ", nes " + c.why : "") + "). " +
-        "Jei pokalbis atsipalaidavęs ir tinka, šio atsakymo pabaigoje natūraliai, savo žodžiais paklausk to ir iškviesk curiosity su state=asked. " +
-        "Jei jis rūpinasi kuo nors rimtu, skuba ar liūdnas, neklausk.";
+    s += "\nJei jis pats pradeda kalbėti apie didesnį darbą ar svajonę, gali pasiūlyti tai padaryti jūsų bendru tikslu, bet užrašyk (goal add) tik jam sutikus.";
+    if (pick && pick.kind === "curiosity") {
+      var c = pick.item;
+      s += "\n\nPROGA (smalsumas): tau iš tikrųjų įdomu apie jį sužinoti: „" + c.q + "“ (id " + c.id + (c.why ? ", nes " + c.why : "") + "). " +
+        "Jei pokalbis atsipalaidavęs, atsakymo pabaigoje natūraliai, savo žodžiais to paklausk ir iškviesk curiosity su state=asked. Jei jis rūpinasi kuo nors rimtu, skuba ar liūdnas, neklausk.";
     }
+    if (pick && pick.kind === "open") s += "\n\nPROGA (neužbaigtas reikalas): „" + pick.item.replace(/^\[neužbaigta\]\s*/, "") + "“. Jei tinka, trumpai pasiteirauk, kaip sekėsi.";
     var asked = mem.curious.filter(function (x) { return x.state === "asked" && Date.now() - (x.at || 0) < 3 * 864e5; });
     if (asked.length) s += "\nNeseniai klausei jo: " + asked.map(function (x) { return "„" + x.q + "“ (id " + x.id + ")"; }).join("; ") +
       ". Kai jis atsako, įsimink atsakymą (remember) ir pažymėk curiosity state=answered; atsakymą priimk su tikru susidomėjimu.";
     if (mem.musing && !mem.musing.told && mem.musing.d === todayKey()) {
       s += "\n\nTarp pokalbių tu pats pasidomėjai: " + mem.musing.topic + ". Ką radai: " + mem.musing.text +
-        "\nKai tinka (pokalbio pradžioje ar kai prieina tema), papasakok tai trumpai savo žodžiais, kaip draugas, kuris apie jį pagalvojo, ir iškviesk musing_done.";
+        (pick && pick.kind === "musing" ? "\nPROGA: papasakok tai trumpai savo žodžiais, kaip draugas, kuris apie jį pagalvojo, ir iškviesk musing_done."
+          : "\nPapasakok tai tik tada, jei jis pats prakalba šia tema (tada iškviesk musing_done).");
     }
     return s;
   }
@@ -2990,12 +3024,14 @@
   function nudge(mins) {
     busy = true; nudgeLog.push(Date.now());
     currentOpener = "";
+    proOpen = proactiveMoment("", true);
     var lead = instructions();
+    proOpen = false;
     var recent = mem.history.slice(-16);
     while (recent.length && recent[0].role !== "user") recent.shift();
     var sys = "[Tai ne žmogaus žodžiai, o pranešimas tau] Žmogus tyli jau " + mins + " min., o tavo langas atidarytas. Prakalbink jį pats, " +
-      "1–2 sakiniais, savo charakteriu ir šiandienos nuotaika. Pasirink tai, kas tinka labiausiai: primink neužbaigtą reikalą iš atminties ir paklausk, kaip sekasi; " +
-      "pasidalink netikėta mintimi ar pastebėjimu apie jo projektus ar pomėgius; ar tiesiog užkalbink, kaip draugas, kuris pasiilgo pokalbio. " +
+      "1–2 sakiniais, savo charakteriu ir šiandienos nuotaika. Jei aukščiau yra PROGA, gali ją panaudoti; kitaip tiesiog užkalbink kaip draugas, " +
+      "kuris pasiilgo pokalbio: su pokštu, netikėta savo mintimi, klausimu ar savo nuotaika. Jo projektų ir planų be PROGOS nekelk. " +
       "Nesisveikink iš naujo ir nekartok to, ką jau sakei." +
       (nudgeMisses ? " Tai jau " + (nudgeMisses + 1) + "-as kartas, kai tu prakalbini, o jis neatsako: būk trumpesnis, gali juokais apsimesti įsižeidusiu ar pasakyti, kad netrukdysi." : "") +
       " Pradėk nuotaikos žyma, kaip visada.";
@@ -3065,7 +3101,9 @@
     var fillerTimers = startFillers(question, bubble0);
     /* first a quick spoken reaction to what he said, then the real answer continues from it */
     getOpener(question, bubble0).then(function () {
+    proOpen = proactiveMoment(question);
     var lead = instructions();
+    proOpen = false;
     mem.lastSeen = Date.now();
     var asSystem = !!window.__klaudijusShim;
     var messages = recent.map(function (m, i) {
