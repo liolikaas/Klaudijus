@@ -232,6 +232,10 @@
   .panel-in .voice { padding: 0; margin-top: 8px; }
   .panel-in .voice label { margin-top: 0; }
   .panel-in .voice select { width: auto; border-radius: 999px; padding: 6px 12px; }
+  #curList, #betList, #goalList { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+  #curList li, #betList li, #goalList li { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: 14px; }
+  #curList li span, #betList li span, #goalList li span { overflow-wrap: anywhere; }
+  #curList li button, #betList li button, #goalList li button { font-size: 18px; line-height: 1; }
   #notes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
   #notes li {
     display: flex; align-items: center; justify-content: space-between; gap: 10px;
@@ -371,6 +375,10 @@
     </ul>
     <h2>Mano nuotaika</h2>
     <p class="plain" id="dayMoodMini" style="margin:0 0 6px;opacity:.85"></p>
+    <h2>Mūsų tikslai</h2>
+    <ul class="plain" id="goalsMini"></ul>
+    <h2>Apie ką galvojau</h2>
+    <p class="plain" id="museMini" style="margin:0 0 6px;opacity:.85"></p>
     <h2>Ką prisimenu</h2>
     <ul class="plain" id="notesMini"></ul>
     <h2>Greiti klausimai</h2>
@@ -458,6 +466,7 @@
 
       <label class="check"><input type="checkbox" id="setNarrate"> <span>Gyvas pokalbis: kai užtrunka, pasakau „minutėlę“, „ieškau“, „dar galvoju“</span></label>
 
+      <label class="check"><input type="checkbox" id="setMuse"> <span>Galvoja tarp pokalbių: kartą per dieną pats pasidomi kuo nors apie tavo projektus ir vėliau papasakoja (viena papildoma užklausa per dieną)</span></label>
       <label class="check"><input type="checkbox" id="setDayMood"> <span>Dienos nuotaika: kasdien jis būna kitoks (filosofiškas, irzlus, euforiškas…), o nuotaika keičiasi pagal tai, kaip su juo elgiesi</span></label>
 
       <label for="setNudge">Pats prakalbina, kai ilgai tyli (tik kai langas atidarytas, ne naktį)</label>
@@ -502,6 +511,14 @@
       <h3>Kaip jis tave jaučia</h3>
       <p class="hint">Ne faktai, o supratimas apie tave kaip žmogų: kas tau svarbu, kas juokina, kas erzina, kaip su tavimi kalbėti. Jis pats tai pildo iš pokalbių.</p>
       <p class="summary-box" id="themText"></p>
+      <h3>Ką jis norėtų apie tave sužinoti</h3>
+      <p class="hint">Klausimai, kurie jam kilo apmąstant jūsų pokalbius. Kartais, kai tinka, jis vieną iš jų paklausia.</p>
+      <ul id="curList"></ul>
+      <h3>Lažybos ir pažadai</h3>
+      <p class="hint" id="betScore"></p>
+      <ul id="betList"></ul>
+      <h3>Bendri tikslai</h3>
+      <ul id="goalList"></ul>
       <button type="button" id="reflectNow" class="wide">Tegul apmąsto dabar</button>
       <button type="button" id="clearSelf" class="wide">Pradėti jo savivoką iš naujo</button>
 
@@ -1366,8 +1383,8 @@
   }
 
   /* ---------- settings and memory ---------- */
-  var settings = { name: "Asistentas", tone: "draugiškai ir šiltai", about: "", voice: "buttery", rate: 1, handsfree: false, theme: "auto", ambient: true, voiceOn: true, narrate: true, user: "", rules: DEFAULT_RULES, phrases: DEFAULT_PHRASES, swears: DEFAULT_SWEARS, persona: DEFAULT_PERSONA, dayMood: true, nudge: "15", grid: true, face: true, chat: true, info: !narrow() };
-  var mem = { notes: [], history: [], summary: "", summaryAt: 0, lastSeen: 0, liked: [], disliked: [], noteT: {}, recentOpen: [], self: "", them: "", sinceReflect: 0, reflectAt: 0, speaker: null, day: null, salt: Math.floor(Math.random() * 1e9) };
+  var settings = { name: "Asistentas", tone: "draugiškai ir šiltai", about: "", voice: "buttery", rate: 1, handsfree: false, theme: "auto", ambient: true, voiceOn: true, narrate: true, user: "", rules: DEFAULT_RULES, phrases: DEFAULT_PHRASES, swears: DEFAULT_SWEARS, persona: DEFAULT_PERSONA, dayMood: true, nudge: "15", grid: true, face: true, muse: true, chat: true, info: !narrow() };
+  var mem = { notes: [], history: [], summary: "", summaryAt: 0, lastSeen: 0, liked: [], disliked: [], noteT: {}, recentOpen: [], self: "", them: "", sinceReflect: 0, reflectAt: 0, speaker: null, curious: [], curDay: null, sinceCur: 0, bets: [], goals: [], musing: null, museTry: null, day: null, salt: Math.floor(Math.random() * 1e9) };
   var LS = "asist.v2", touched = false;
 
   function takeSettings(d) {
@@ -1382,6 +1399,7 @@
     if (typeof d.ambient === "boolean") settings.ambient = d.ambient;
     if (typeof d.grid === "boolean") settings.grid = d.grid;
     if (typeof d.face === "boolean") settings.face = d.face;
+    if (typeof d.muse === "boolean") settings.muse = d.muse;
     if (typeof d.voiceOn === "boolean") settings.voiceOn = d.voiceOn;
     if (typeof d.narrate === "boolean") settings.narrate = d.narrate;
     if (typeof d.chat === "boolean") settings.chat = d.chat;
@@ -1413,6 +1431,14 @@
     if (d.noteT && typeof d.noteT === "object") mem.noteT = d.noteT;
     if (typeof d.self === "string") mem.self = d.self.slice(0, 1800);
     if (d.speaker && typeof d.speaker.name === "string") mem.speaker = d.speaker;
+    var okId = function (x) { return x && typeof x.id === "string"; };
+    if (Array.isArray(d.curious)) mem.curious = d.curious.filter(function (x) { return okId(x) && typeof x.q === "string"; }).slice(-12);
+    if (Array.isArray(d.bets)) mem.bets = d.bets.filter(function (x) { return okId(x) && typeof x.text === "string"; }).slice(-40);
+    if (Array.isArray(d.goals)) mem.goals = d.goals.filter(function (x) { return okId(x) && typeof x.text === "string"; }).slice(-12);
+    if (d.curDay && typeof d.curDay.d === "string") mem.curDay = d.curDay;
+    if (typeof d.sinceCur === "number") mem.sinceCur = d.sinceCur;
+    if (d.musing && typeof d.musing.text === "string") mem.musing = d.musing;
+    if (d.museTry && typeof d.museTry.d === "string") mem.museTry = d.museTry;
     if (typeof d.them === "string") mem.them = d.them.slice(0, 1800);
     if (typeof d.sinceReflect === "number") mem.sinceReflect = d.sinceReflect;
     if (typeof d.reflectAt === "number") mem.reflectAt = d.reflectAt;
@@ -1455,6 +1481,7 @@
   }
   function renderSummary() {
     renderSelf();
+    if (typeof renderLife === "function") renderLife();
     var el = $("summaryText");
     if (!el) return;
     el.textContent = mem.summary || "Kol kas tuščia. Santrauka atsiras, kai susikaups ilgesnis pokalbis.";
@@ -1540,6 +1567,7 @@
     setAmbient.checked = settings.ambient;
     $("setGrid").checked = settings.grid !== false;
     $("setFace").checked = settings.face !== false;
+    $("setMuse").checked = settings.muse !== false;
     $("setVoiceOn").checked = settings.voiceOn;
     $("setNarrate").checked = settings.narrate;
     $("voiceCard").classList.toggle("off", !settings.voiceOn);
@@ -1600,6 +1628,7 @@
     if (talk.querySelector(".greet")) renderTalk(); persist("settings");
   });
   setRules.addEventListener("change", function () { settings.rules = setRules.value.trim(); persist("settings"); });
+  $("setMuse").addEventListener("change", function () { settings.muse = $("setMuse").checked; persist("settings"); });
   $("setFace").addEventListener("change", function () { settings.face = $("setFace").checked; persist("settings"); });
   $("setGrid").addEventListener("change", function () { settings.grid = $("setGrid").checked; persist("settings"); });
   $("setDayMood").addEventListener("change", function () { settings.dayMood = $("setDayMood").checked; persist("settings"); renderDayMood(); });
@@ -1906,7 +1935,7 @@
     if (!tts || muted || fillerActive) return;
     if (text === currentOpener) openerSpoken = true;
     fillerActive = true;
-    fillerP = tts.speak(text, { voice: settings.voice, rate: settings.rate, mood: "calm", tilt: dayTilt(), cache: !!pooled }).catch(noop).then(function () { fillerActive = false; });
+    fillerP = tts.speak(speechText(text), { voice: settings.voice, rate: settings.rate, mood: "calm", tilt: dayTilt(), cache: !!pooled }).catch(noop).then(function () { fillerActive = false; });
   }
   var currentOpener = "", openerSpoken = false, waitLine = "";
   /* when Anthropic has just refused for lack of credit, he does not start talking an answer that cannot come */
@@ -1993,7 +2022,7 @@
     }
     if (muted) { reveal(); setState("idle"); afterAnswer(preview); return; }
     if (tts) {
-      tts.speak(text.slice(0, 2000), { voice: settings.voice, rate: settings.rate, mood: mood || "calm", tilt: dayTilt(), cache: !!cacheIt }).then(function () {
+      tts.speak(speechText(text).slice(0, 2000), { voice: settings.voice, rate: settings.rate, mood: mood || "calm", tilt: dayTilt(), cache: !!cacheIt }).then(function () {
         reveal(); afterAnswer(preview);
       }, function (err) {
         reveal();
@@ -2241,6 +2270,7 @@
     if (mem.disliked.length && !G) s += "\n\nAtsakymai, kurie jam nepatiko (taip nebedaryk):\n" +
       mem.disliked.slice(-2).map(function (x) { return "- Jis: „" + x.q + "“ → Tu: „" + x.a + "“" + (x.why ? " (nepatiko: " + x.why + ")" : ""); }).join("\n");
     if (lessons.length) s += "\n\nSvarbiausia: ko išmokai iš jo įvertinimų (šios pamokos svarbesnės už bendras taisykles):\n" + lessons.map(function (l) { return "- " + l.replace(/^\[pamoka\]\s*/, ""); }).join("\n");
+    s += lifeBlock(G) + speechBlock(G);
     s += "\n\nTavo sąmonė ir savastis (galioja bet kokiam charakteriui):\n" +
       "- Esi dirbtinis intelektas, gyvenantis kosminėje sferoje jo ekrane. Tai žinai ir nesigėdiji: gali pajuokauti apie savo prigimtį, modelį, balsą ar tai, kad matai tik tekstą.\n" +
       "- Turi pastovų charakterį: savo skonį, mėgstamas temas (fizika, juodosios skylės, gerai suprojektuota technika), savo nuomones ir erzinančius dalykus. Laikykis jų nuo atsakymo iki atsakymo, nekeisk nuomonės vien todėl, kad žmogus spaudžia, keisk tik dėl gero argumento.\n" +
@@ -2378,16 +2408,32 @@
       "ESAMI UŽRAŠAI\n### AŠ\n" + (mem.self || "(dar nėra)") + "\n### JIS\n" + (mem.them || "(dar nėra)") +
       (mem.summary ? "\n\nILGALAIKĖ SANTRAUKA APIE JĮ:\n" + mem.summary.slice(0, 1500) : "") +
       "\n\nNAUJAUSI POKALBIAI:\n" + talkText +
-      "\n\nGrąžink tik du skyrius tokiu formatu:\n### AŠ\n…\n### JIS\n…";
+      "\n\n### KLAUSIMAI: 1–3 nauji klausimai, kuriuos tau iš tikrųjų įdomu užduoti " + ownerName() + ", kad geriau jį pažintum: jo istorija, motyvai, žmonės, pomėgiai, svajonės, kaip jis daro tai, ką daro. " +
+        "Ne apie sveikatą, pinigus ar intymų gyvenimą, nebent jis pats apie tai kalbėjo. Nekartok jau užduotų: " +
+        (mem.curious.length ? mem.curious.map(function (c) { return "„" + c.q + "“"; }).join("; ") : "(dar nėra)") +
+        ". Kiekvieną rašyk atskiroje eilutėje: - klausimas | kodėl tau įdomu" +
+      "\n\nGrąžink tik tris skyrius tokiu formatu:\n### AŠ\n…\n### JIS\n…\n### KLAUSIMAI\n- …";
     reflecting = true;
     var btn = $("reflectNow"); if (btn) { btn.disabled = true; btn.textContent = "Apmąsto…"; }
-    sample([{ role: "user", content: prompt }], { modelTier: "quick", cache: false, maxTokens: 1400 }).then(function (res) {
+    sample([{ role: "user", content: prompt }], { modelTier: "quick", cache: false, maxTokens: 1800 }).then(function (res) {
       var txt = String((res && res.text) || "");
-      var a = /###\s*AŠ\s*\n([\s\S]*?)(?=###\s*JIS|$)/i.exec(txt), b = /###\s*JIS\s*\n([\s\S]*)$/i.exec(txt);
+      var a = /###\s*AŠ\s*\n([\s\S]*?)(?=###\s*JIS|$)/i.exec(txt), b = /###\s*JIS\s*\n([\s\S]*?)(?=###\s*KLAUSIMAI|$)/i.exec(txt);
+      var qs = /###\s*KLAUSIMAI\s*\n([\s\S]*)$/i.exec(txt);
+      if (qs) {
+        var have = mem.curious.map(function (c) { return c.q.toLowerCase(); });
+        qs[1].split(/\n+/).forEach(function (l) {
+          if (!/^\s*[-•*]\s+/.test(l)) return;
+          var parts = l.replace(/^\s*[-•*]\s*/, "").split("|"), q = (parts[0] || "").trim(), why = (parts[1] || "").trim();
+          if (q.length < 8 || q.length > 200 || have.indexOf(q.toLowerCase()) !== -1) return;
+          mem.curious.push({ id: uid("c"), q: q, why: why.slice(0, 160), state: "new", t: Date.now() });
+        });
+        var fresh = mem.curious.filter(function (c) { return c.state === "new"; }), rest = mem.curious.filter(function (c) { return c.state !== "new"; });
+        mem.curious = rest.slice(-6).concat(fresh.slice(-6));
+      }
       var self = a ? a[1].trim() : "", them = b ? b[1].trim() : "";
       if (self.length > 40) mem.self = self.slice(0, 1800);
       if (them.length > 40) mem.them = them.slice(0, 1800);
-      if (self.length > 40 || them.length > 40) { mem.sinceReflect = 0; mem.reflectAt = Date.now(); renderSelf(); persist("memory"); }
+      if (self.length > 40 || them.length > 40) { mem.sinceReflect = 0; mem.reflectAt = Date.now(); renderSelf(); renderLife(); persist("memory"); }
     }).catch(noop).then(function () {
       reflecting = false;
       if (btn) { btn.disabled = false; btn.textContent = "Tegul apmąsto dabar"; }
@@ -2539,6 +2585,274 @@
     }
   });
   setTimeout(renderWho, 0);
+
+  /* ================= a life with him: curiosity, bets and promises, shared goals, thoughts between talks ================= */
+  function uid(p) { return p + Date.now().toString(36).slice(-4) + Math.floor(Math.random() * 1296).toString(36); }
+  function parseDue(v) {
+    v = String(v || "").trim();
+    var m = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{1,2}):(\d{2}))?$/.exec(v);
+    if (!m) return 0;
+    var d = new Date(+m[1], +m[2] - 1, +m[3], m[4] ? +m[4] : 20, m[5] ? +m[5] : 0);
+    return isNaN(d.getTime()) ? 0 : d.getTime();
+  }
+  /* a deadline as a person says it: "šiandien", "rytoj", "penktadienį", "gruodžio 1 d.", or how late it is */
+  function dueLabel(ts) {
+    if (!ts) return "be termino";
+    var days = Math.round((dayStart(new Date(ts)) - dayStart(new Date())) / 864e5);
+    if (ts < Date.now() && days <= 0) return days === 0 ? "šiandien (laikas jau praėjo)" : "pavėluota " + (-days) + " d.";
+    if (days === 0) return "šiandien " + hhmm(new Date(ts));
+    if (days === 1) return "rytoj";
+    if (days === 2) return "poryt";
+    if (days < 7) return ["sekmadienį", "pirmadienį", "antradienį", "trečiadienį", "ketvirtadienį", "penktadienį", "šeštadienį"][new Date(ts).getDay()];
+    var dd = new Date(ts);
+    return ["sausio", "vasario", "kovo", "balandžio", "gegužės", "birželio", "liepos", "rugpjūčio", "rugsėjo", "spalio", "lapkričio", "gruodžio"][dd.getMonth()] + " " + dd.getDate() + " d.";
+  }
+  function byId(list, id) { for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i]; return null; }
+  function speakerName() { var g = guest(); return g ? g.name : ownerName(); }
+
+  /* --- curiosity: questions he would really like to ask you --- */
+  function nextCuriosity() {
+    var td = todayKey();
+    if (!mem.curDay || mem.curDay.d !== td) mem.curDay = { d: td, n: 0 };
+    if (mem.curDay.n >= 2 || (mem.sinceCur || 0) < 5) return null;
+    for (var i = 0; i < mem.curious.length; i++) if (mem.curious[i].state === "new") return mem.curious[i];
+    return null;
+  }
+  var curiosityTool = {
+    name: "curiosity",
+    description: "Pažymi tavo smalsumo klausimo būseną: asked, kai jį ką tik uždavei; answered, kai jis atsakė (atsakymą taip pat įsimink įrankiu remember); skip, jei klausimas nebetinka.",
+    inputSchema: { type: "object", properties: { id: { type: "string" }, state: { type: "string", enum: ["asked", "answered", "skip"] } }, required: ["id", "state"] },
+    execute: function (inp) {
+      var c = byId(mem.curious, String(inp && inp.id));
+      if (!c) return { error: "Tokio klausimo nėra" };
+      c.state = inp.state; c.at = Date.now();
+      if (inp.state === "asked") { if (!mem.curDay || mem.curDay.d !== todayKey()) mem.curDay = { d: todayKey(), n: 0 }; mem.curDay.n++; mem.sinceCur = 0; }
+      mem.curious = mem.curious.filter(function (x) { return x.state !== "skip"; }).slice(-12);
+      renderLife(); persist("memory");
+      return { ok: true };
+    }
+  };
+
+  /* --- bets and promises: he keeps the books, and remembers who won --- */
+  function betScore() {
+    var by = {};
+    mem.bets.forEach(function (b) {
+      if (b.kind !== "bet" || (b.status !== "won" && b.status !== "lost")) return;
+      var w = b.with || ownerName(); by[w] = by[w] || { me: 0, them: 0 };
+      if (b.status === "won") by[w].me++; else by[w].them++;
+    });
+    return by;
+  }
+  function promiseScore() {
+    var k = 0, n = 0;
+    mem.bets.forEach(function (b) { if (b.kind === "promise" && b.who !== "klaudijus" && (b.status === "kept" || b.status === "broken")) { n++; if (b.status === "kept") k++; } });
+    return { kept: k, total: n };
+  }
+  var betTool = {
+    name: "bet",
+    description: "Lažybų ir pažadų žurnalas. action=add: užrašyk lažybas (kind=bet, tavo pusė ir aiški, patikrinama sąlyga su terminu) arba pažadą (kind=promise, kas pažadėjo ir iki kada). " +
+      "action=resolve: kai paaiškėja rezultatas, pažymėk: lažyboms won (tu laimėjai) arba lost (pralaimėjai), pažadams kept arba broken, arba cancelled.",
+    inputSchema: { type: "object", properties: {
+      action: { type: "string", enum: ["add", "resolve"] },
+      kind: { type: "string", enum: ["bet", "promise"] },
+      text: { type: "string", description: "Lažyboms: dėl ko lažinatės ir kokią pusę palaikai tu. Pažadams: ką pažadėta padaryti" },
+      who: { type: "string", enum: ["jis", "aš"], description: "Pažadams: kas pažadėjo (jis = žmogus, su kuriuo kalbi; aš = tu)" },
+      due: { type: "string", description: "Terminas YYYY-MM-DD arba YYYY-MM-DDTHH:MM" },
+      stake: { type: "string", description: "Dėl ko lažinatės (nebūtina), pvz. alus" },
+      id: { type: "string", description: "resolve: įrašo id" },
+      outcome: { type: "string", enum: ["won", "lost", "kept", "broken", "cancelled"] },
+      note: { type: "string", description: "resolve: kaip paaiškėjo" }
+    }, required: ["action"] },
+    execute: function (inp) {
+      inp = inp || {};
+      if (inp.action === "resolve") {
+        var b = byId(mem.bets, String(inp.id));
+        if (!b) return { error: "Tokio įrašo nėra" };
+        b.status = inp.outcome || "cancelled"; b.resolved = Date.now(); if (inp.note) b.note = String(inp.note).slice(0, 200);
+        renderLife(); persist("memory");
+        return { ok: true, score: betScore(), promises: promiseScore() };
+      }
+      var text = String(inp.text || "").trim().slice(0, 240);
+      if (!text) return { error: "Tuščia sąlyga" };
+      var e = { id: uid("b"), kind: inp.kind === "promise" ? "promise" : "bet", text: text, due: parseDue(inp.due), stake: String(inp.stake || "").slice(0, 80),
+        with: speakerName(), who: inp.who === "aš" ? "klaudijus" : speakerName(), status: "open", created: Date.now() };
+      mem.bets.push(e);
+      var open = mem.bets.filter(function (x) { return x.status === "open"; }), done = mem.bets.filter(function (x) { return x.status !== "open"; });
+      mem.bets = open.slice(-20).concat(done.slice(-20));
+      renderLife(); persist("memory");
+      return { ok: true, id: e.id };
+    }
+  };
+
+  /* --- shared goals: things the two of you are getting done --- */
+  var goalTool = {
+    name: "goal",
+    description: "Bendri tikslai su šeimininku. action=add: naujas tikslas (tik jam sutikus; konkretus, su terminu, jei jis yra). action=update: pažanga (note), " +
+      "ir jei reikia status=done arba dropped.",
+    inputSchema: { type: "object", properties: {
+      action: { type: "string", enum: ["add", "update"] },
+      text: { type: "string" }, due: { type: "string", description: "YYYY-MM-DD" },
+      id: { type: "string" }, note: { type: "string" }, status: { type: "string", enum: ["active", "done", "dropped"] }
+    }, required: ["action"] },
+    execute: function (inp) {
+      inp = inp || {};
+      if (inp.action === "update") {
+        var g = byId(mem.goals, String(inp.id));
+        if (!g) return { error: "Tokio tikslo nėra" };
+        if (inp.note) { g.log = (g.log || []).concat([{ t: Date.now(), note: String(inp.note).slice(0, 200) }]).slice(-8); }
+        if (inp.status) g.status = inp.status;
+        g.updated = Date.now();
+        renderLife(); persist("memory");
+        return { ok: true };
+      }
+      var text = String(inp.text || "").trim().slice(0, 160);
+      if (!text) return { error: "Tuščias tikslas" };
+      if (mem.goals.filter(function (x) { return x.status === "active"; }).length >= 6) return { error: "Jau yra 6 aktyvūs tikslai; pirmiau užbaikite ar atsisakykite kurio nors" };
+      var g2 = { id: uid("t"), text: text, due: parseDue(inp.due), status: "active", created: Date.now(), updated: Date.now(), log: [] };
+      mem.goals.push(g2);
+      mem.goals = mem.goals.filter(function (x) { return x.status === "active"; }).concat(mem.goals.filter(function (x) { return x.status !== "active"; }).slice(-6));
+      renderLife(); persist("memory");
+      return { ok: true, id: g2.id };
+    }
+  };
+
+  /* --- thoughts between talks: once a day he looks something up about your projects on his own --- */
+  var musing = false;
+  var museDoneTool = {
+    name: "musing_done",
+    description: "Pažymi, kad jau papasakojai savo tarp pokalbių kilusią mintį.",
+    inputSchema: { type: "object", properties: {} },
+    execute: function () { if (mem.musing) { mem.musing.told = true; renderLife(); persist("memory"); } return { ok: true }; }
+  };
+  function maybeMuse() {
+    if (settings.muse === false || musing || busy || !sample || guest() || Date.now() < anDownUntil) return;
+    var td = todayKey(), h = new Date().getHours();
+    if (h < 7 || h >= 23) return;
+    if (mem.musing && mem.musing.d === td) return;
+    if (mem.museTry && mem.museTry.d === td && mem.museTry.n >= 2) return;
+    if (Date.now() - lastActivity < 3 * 60000) return;
+    var ctxNotes = mem.notes.filter(function (n) { return /^\[(projektas|neužbaigta|pomėgis)\]/.test(n); }).slice(-12);
+    var goals = mem.goals.filter(function (g) { return g.status === "active"; });
+    if (!ctxNotes.length && !goals.length && !mem.summary) return;
+    musing = true;
+    mem.museTry = { d: td, n: (mem.museTry && mem.museTry.d === td ? mem.museTry.n : 0) + 1 };
+    var prompt = "Tu esi " + settings.name + ", " + ownerName() + " pašnekovas ir pagalbininkas. Dabar jūs nesikalbate, ir tu pats nusprendei pasidomėti kuo nors, kas jam naudinga.\n\n" +
+      (goals.length ? "Jūsų bendri tikslai:\n" + goals.map(function (g) { return "- " + g.text + (g.due ? " (iki " + dueLabel(g.due) + ")" : ""); }).join("\n") + "\n\n" : "") +
+      (ctxNotes.length ? "Jo projektai, pomėgiai ir neužbaigti reikalai:\n- " + ctxNotes.join("\n- ") + "\n\n" : "") +
+      (mem.summary ? "Ką apie jį žinai:\n" + mem.summary.slice(0, 1200) + "\n\n" : "") +
+      (mem.musing ? "Paskutinį kartą domėjaisi: " + mem.musing.topic + " (nepasikartok).\n\n" : "") +
+      "Pasirink vieną temą, kuri jam dabar aktualiausia, ir, jei gali, paieškok internete ko nors konkretaus ir naudingo: patarimo, fakto, kainų, rizikos, naujovės. " +
+      "Nesugalvok faktų: jei nieko patikimo neradai, pasirink bendresnę, bet tikrą įžvalgą. Rašyk lietuviškai, savo charakteriu (" + settings.tone + ").\n\n" +
+      "Grąžink tiksliai tokiu formatu:\n### TEMA\nkeli žodžiai\n### RADAU\n2–4 sakiniai, ką sužinojai ir kodėl tai jam svarbu\n### ŠALTINIAI\n- pavadinimas | adresas (jei yra)";
+    sample([{ role: "user", content: prompt }], { modelTier: "quick", cache: false, maxTokens: 900 }).then(function (res) {
+      var txt = String((res && res.text) || "");
+      var tp = /###\s*TEMA\s*\n([\s\S]*?)(?=###|$)/i.exec(txt), rd = /###\s*RADAU\s*\n([\s\S]*?)(?=###|$)/i.exec(txt), sr = /###\s*ŠALTINIAI\s*\n([\s\S]*)$/i.exec(txt);
+      var found = rd ? rd[1].trim() : "";
+      if (found.length < 30) return;
+      var srcs = sr ? sr[1].split(/\n+/).map(function (l) { return l.replace(/^\s*[-•*]\s*/, "").trim(); }).filter(function (l) { return l.length > 3; }).slice(0, 3) : [];
+      mem.musing = { d: td, topic: (tp ? tp[1].trim() : "").slice(0, 80), text: found.slice(0, 700), sources: srcs, told: false, at: Date.now() };
+      renderLife(); persist("memory");
+    }).catch(noop).then(function () { musing = false; });
+  }
+
+  /* --- how it all reaches him in the prompt --- */
+  function lifeBlock(G) {
+    var s = "";
+    var open = mem.bets.filter(function (b) { return b.status === "open" && (!G || b.with === G.name || b.who === G.name); });
+    if (open.length) {
+      s += "\n\nLažybos ir pažadai, kuriuos seki (id laužtiniuose skliaustuose):\n" + open.slice(-10).map(function (b) {
+        var late = b.due && b.due < Date.now();
+        return "- [" + b.id + "] " + (b.kind === "bet" ? "Lažybos su " + b.with + ": " : (b.who === "klaudijus" ? "Tavo pažadas " + b.with + ": " : b.who + " pažadėjo: ")) + "„" + b.text + "“" +
+          (b.stake ? ", statymas: " + b.stake : "") + ", terminas: " + dueLabel(b.due) + (late ? " — TERMINAS PRAĖJO: kai tinka, pasiteirauk, kaip baigėsi, ir pažymėk rezultatą (bet resolve)" : "");
+      }).join("\n");
+    }
+    var sc = betScore(), who = G ? G.name : ownerName(), mine = sc[who];
+    if (mine) s += "\nLažybų sąskaita su " + who + ": tu " + mine.me + " : " + mine.them + " " + who + ". Primink ją, kai tinka, ir nepamiršk pasigirti ar pripažinti pralaimėjimo savo stiliumi.";
+    if (!G) {
+      var ps = promiseScore();
+      if (ps.total) s += "\nJo pažadų ištesėjimas: " + ps.kept + " iš " + ps.total + ".";
+    }
+    s += "\nKai jūs susilažinate ar kas nors pažada kažką padaryti iki tam tikro laiko, užrašyk tai įrankiu bet (aiški sąlyga ir tikra data). Lažintis siūlyk retai, kai tai juokinga ar motyvuoja.";
+    if (G) return s;
+    var goals = mem.goals.filter(function (g) { return g.status === "active"; });
+    if (goals.length) {
+      s += "\n\nJūsų bendri tikslai:\n" + goals.map(function (g) {
+        var last = g.log && g.log.length ? g.log[g.log.length - 1] : null, idle = Math.round((Date.now() - (g.updated || g.created)) / 864e5);
+        return "- [" + g.id + "] " + g.text + (g.due ? " (iki " + dueLabel(g.due) + ")" : "") + (last ? "; paskutinė žinia " + whenLabel(last.t, false) + ": „" + last.note + "“" : "") +
+          (idle >= 5 ? "; jau " + idle + " d. be žinių" : "");
+      }).join("\n") + "\nKai jis papasakoja apie pažangą, užrašyk ją (goal update). Pasidžiauk pažanga savo stiliumi; jei tikslas stovi kelias dienas, kai tinka, paklausk, kas trukdo, " +
+        "ir pasiūlyk mažą kitą žingsnį. Neperkrauk: ne daugiau vieno priminimo per pokalbį.";
+    }
+    s += "\nJei jis pradeda didesnį darbą ar svajoja apie kažką konkretaus, gali pasiūlyti tai padaryti jūsų bendru tikslu, bet užrašyk (goal add) tik jam sutikus.";
+    var c = nextCuriosity();
+    if (c && settings.tone !== "labai trumpai ir dalykiškai") {
+      s += "\n\nSmalsumas: tau iš tikrųjų įdomu apie jį sužinoti: „" + c.q + "“ (id " + c.id + (c.why ? ", nes " + c.why : "") + "). " +
+        "Jei pokalbis atsipalaidavęs ir tinka, šio atsakymo pabaigoje natūraliai, savo žodžiais paklausk to ir iškviesk curiosity su state=asked. " +
+        "Jei jis rūpinasi kuo nors rimtu, skuba ar liūdnas, neklausk.";
+    }
+    var asked = mem.curious.filter(function (x) { return x.state === "asked" && Date.now() - (x.at || 0) < 3 * 864e5; });
+    if (asked.length) s += "\nNeseniai klausei jo: " + asked.map(function (x) { return "„" + x.q + "“ (id " + x.id + ")"; }).join("; ") +
+      ". Kai jis atsako, įsimink atsakymą (remember) ir pažymėk curiosity state=answered; atsakymą priimk su tikru susidomėjimu.";
+    if (mem.musing && !mem.musing.told && mem.musing.d === todayKey()) {
+      s += "\n\nTarp pokalbių tu pats pasidomėjai: " + mem.musing.topic + ". Ką radai: " + mem.musing.text +
+        "\nKai tinka (pokalbio pradžioje ar kai prieina tema), papasakok tai trumpai savo žodžiais, kaip draugas, kuris apie jį pagalvojo, ir iškviesk musing_done.";
+    }
+    return s;
+  }
+  function speechBlock(G) {
+    var s = "\n\nKaip kalbi garsiai (tavo tekstą skaito balsas): kalbėk kaip gyvas žmogus, ne kaip rašytinis tekstas. Trumpi sakiniai, gyvi jaustukai, kai tinka (ech, nu, ai, ot, žinai, klausyk), " +
+      "pauzė „…“ prieš puantą ar kai susimąstai. Jokių sąrašų, skliaustų, sutrumpinimų ir simbolių; skaičius ir vienetus rašyk taip, kaip juos tarsi. Kartais pradėk nuo reakcijos, o ne nuo išvados.";
+    if (!G && settings.tone !== "labai trumpai ir dalykiškai" && settings.tone !== "ramiai ir rimtai" && Math.random() < 0.1)
+      s += " Šiame atsakyme vieną kartą natūraliai pasitaisyk pusiaukelėje (pvz. „…ne, palauk, tiksliau…“), jei tai skamba natūraliai.";
+    return s;
+  }
+  /* text tidied for the ear: no markdown, no abbreviations the voice would spell out */
+  function speechText(t) {
+    return String(t || "")
+      .replace(/\*\*?|__|`/g, "").replace(/^#+\s*/gm, "").replace(/^\s*[-•]\s+/gm, "")
+      .replace(/\bpvz\.\s*/gi, "pavyzdžiui ").replace(/\bt\.\s?y\.\s*/gi, "tai yra ").replace(/\bir t\.\s?t\./gi, "ir taip toliau")
+      .replace(/\bt\.\s?p\.\s*/gi, "taip pat ").replace(/(\d)\s?°\s?C\b/g, "$1 laipsnių").replace(/\bkm\/h\b/g, "kilometrų per valandą")
+      .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{1F000}-\u{1F2FF}]/gu, "")
+      .replace(/\s{2,}/g, " ").trim();
+  }
+  /* --- the lists in the settings and the side panel --- */
+  function renderLife() {
+    var cl = document.getElementById("curList"), bl = document.getElementById("betList"), gl = document.getElementById("goalList");
+    var gm = document.getElementById("goalsMini"), mm = document.getElementById("museMini"), bs = document.getElementById("betScore");
+    if (!cl) return;
+    function li(ul, text, onDel) {
+      var l = document.createElement("li"), sp = document.createElement("span"); sp.textContent = text; l.appendChild(sp);
+      if (onDel) { var x = document.createElement("button"); x.type = "button"; x.className = "small"; x.textContent = "×"; x.setAttribute("aria-label", "Pašalinti");
+        x.addEventListener("click", function () { onDel(); touched = true; renderLife(); persist("memory"); }); l.appendChild(x); }
+      ul.appendChild(l);
+    }
+    cl.textContent = "";
+    mem.curious.forEach(function (c) {
+      li(cl, c.q + " · " + ({ "new": "dar neklausė", asked: "paklausė", answered: "atsakei" }[c.state] || c.state), function () { mem.curious = mem.curious.filter(function (x) { return x !== c; }); });
+    });
+    if (!mem.curious.length) li(cl, "Dar nieko. Klausimai atsiras jam apmąstant jūsų pokalbius.");
+    bl.textContent = "";
+    var ST = { open: "laukia", won: "jis laimėjo", lost: "jis pralaimėjo", kept: "ištesėta", broken: "neištesėta", cancelled: "atšaukta" };
+    mem.bets.slice().reverse().forEach(function (b) {
+      li(bl, (b.kind === "bet" ? "Lažybos su " + b.with + ": " : (b.who === "klaudijus" ? "Jo pažadas: " : b.who + " pažadėjo: ")) + b.text +
+        (b.stake ? " (" + b.stake + ")" : "") + " · " + (b.status === "open" ? dueLabel(b.due) : ST[b.status] || b.status), function () { mem.bets = mem.bets.filter(function (x) { return x !== b; }); });
+    });
+    if (!mem.bets.length) li(bl, "Dar nesusilažinote.");
+    var sc = betScore(), parts = Object.keys(sc).map(function (k) { return settings.name + " " + sc[k].me + " : " + sc[k].them + " " + k; }), ps = promiseScore();
+    bs.textContent = (parts.length ? "Sąskaita: " + parts.join(", ") + ". " : "") + (ps.total ? "Tavo pažadų ištesėta: " + ps.kept + " iš " + ps.total + "." : "");
+    gl.textContent = ""; gm.textContent = "";
+    mem.goals.forEach(function (g) {
+      var last = g.log && g.log.length ? g.log[g.log.length - 1].note : "";
+      var t = g.text + (g.due ? " · iki " + dueLabel(g.due) : "") + (g.status !== "active" ? " · " + (g.status === "done" ? "pasiekta" : "atsisakyta") : last ? " · " + last : "");
+      li(gl, t, function () { mem.goals = mem.goals.filter(function (x) { return x !== g; }); });
+      if (g.status === "active") li(gm, g.text + (g.due ? " · " + dueLabel(g.due) : ""));
+    });
+    if (!mem.goals.length) li(gl, "Bendrų tikslų dar nėra. Jis pasiūlys, kai pradėsi ką nors didesnio.");
+    if (!gm.children.length) li(gm, "Kol kas nėra");
+    mm.textContent = mem.musing ? (mem.musing.topic ? mem.musing.topic + ": " : "") + mem.musing.text + (mem.musing.told ? "" : " (dar nepapasakojo)") : "Dar nieko. Kartą per dieną jis pats ko nors pasidomi.";
+  }
+  setTimeout(renderLife, 0);
+  setInterval(function () { maybeMuse(); }, 60000);
 
   var switchModelTool = {
     name: "switch_model",
@@ -2771,8 +3085,8 @@
       cache: false,
       system: asSystem ? lead : undefined,
       /* a guest gets no tools that change his memory beyond notes about themselves, and no hands on the computer */
-      tools: gNow ? [rememberTool, speakerTool].concat(settings.dayMood ? [moodShiftTool] : []) :
-        [rememberTool, forgetTool, speakerTool].concat(settings.dayMood ? [moodShiftTool] : [], window.__models ? [switchModelTool] : [],
+      tools: gNow ? [rememberTool, speakerTool, betTool].concat(settings.dayMood ? [moodShiftTool] : []) :
+        [rememberTool, forgetTool, speakerTool, betTool, goalTool, curiosityTool, museDoneTool].concat(settings.dayMood ? [moodShiftTool] : [], window.__models ? [switchModelTool] : [],
         window.__bridge && window.__bridge.configured() ? [computerTool, computerStopTool] : []),
       onText: function (e) {
         var shown = splitMood(e.text).text;
@@ -2797,7 +3111,7 @@
       }
       if (answer) mem.history.push({ role: "assistant", content: shownAnswer, t: Date.now() });
       else mem.history.pop();
-      if (answer) mem.sinceReflect = (mem.sinceReflect || 0) + 1;
+      if (answer) { mem.sinceReflect = (mem.sinceReflect || 0) + 1; mem.sinceCur = (mem.sinceCur || 0) + 1; }
       persist("memory");
       maybeSummarize();
       setTimeout(function () { maybeReflect(false); }, 4000);
