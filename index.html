@@ -841,7 +841,31 @@
   }
   try { if (window.speechSynthesis) { window.speechSynthesis.getVoices(); window.speechSynthesis.onvoiceschanged = function () {}; } } catch (e) {}
   /* when ElevenLabs fails (credits used up, no internet), skip it for a while and use the free browser voice */
+  /* whether ElevenLabs can speak is remembered across reloads, so a session never starts in one voice
+     (a phrase saved earlier) and goes on in another (the backup voice) */
+  var EL_DOWN_KEY = "klaudijus.elDown", elInfo = null;
   var elDownUntil = 0;
+  try { elDownUntil = Number(localStorage.getItem(EL_DOWN_KEY)) || 0; } catch (e) {}
+  function setElDown(until) {
+    elDownUntil = until;
+    try { if (until > Date.now()) localStorage.setItem(EL_DOWN_KEY, String(until)); else localStorage.removeItem(EL_DOWN_KEY); } catch (e) {}
+  }
+  /* how many characters are left this month; needs the key's "User: Read" permission, quietly skipped without it */
+  function checkElCredits() {
+    if (!K.elKey) return Promise.resolve(null);
+    return fetch("https://api.elevenlabs.io/v1/user/subscription", { headers: { "xi-api-key": K.elKey } }).then(function (r) {
+      if (!r.ok) return null;
+      return r.json().then(function (d) {
+        var left = Math.max(0, (Number(d.character_limit) || 0) - (Number(d.character_count) || 0));
+        var reset = Number(d.next_character_count_reset_unix) ? Number(d.next_character_count_reset_unix) * 1000 : 0;
+        elInfo = { left: left, reset: reset };
+        if (left < 120) setElDown(reset > Date.now() ? reset : Date.now() + 6 * 36e5);
+        else if (elDownUntil > Date.now()) setElDown(0);
+        refresh();
+        return elInfo;
+      });
+    }).catch(function () { return null; });
+  }
   /* free replays: short phrases (fillers, greetings) are generated once, then played from device storage */
   var phraseDb = null;
   function phraseOpen() {
@@ -952,7 +976,7 @@
         if (cur !== me) return;
         cur = null;
         if (err && err.name === "AbortError") return;
-        elDownUntil = Date.now() + (err && err.hard ? 30 : 2) * 60000;
+        if (err && err.hard) setElDown(Date.now() + 6 * 36e5); else elDownUntil = Math.max(elDownUntil, Date.now() + 2 * 60000);
         var why = (err && err.message) || "nepasiekiamas";
         if (started) {
           /* never switch voices in the middle of an answer: the rest is already on screen */
@@ -975,7 +999,11 @@
         var getAb = cacheable ? phraseGet(ckey) : Promise.resolve(null);
         return getAb.then(function (hit) {
           if (hit) return hit;
-          return elFetch(chunk, mood, me.abort.signal).then(function (ab) { if (cacheable) phrasePut(ckey, ab.slice(0)); return ab; });
+          return elFetch(chunk, mood, me.abort.signal).then(function (ab) {
+            if (cacheable) phrasePut(ckey, ab.slice(0));
+            if (elInfo) { elInfo.left = Math.max(0, elInfo.left - chunk.length); if (elInfo.left < 120) setElDown(elInfo.reset > Date.now() ? elInfo.reset : Date.now() + 6 * 36e5); }
+            return ab;
+          });
         }).then(function (ab) {
           return new Promise(function (ok, bad) { ctx.decodeAudioData(ab, ok, function () { bad({ code: "tts_error", message: "nepavyko perskaityti garso" }); }); });
         });
@@ -1038,7 +1066,8 @@
   }
   function refresh() {
     status("stBrain", !!K.anKey, K.anKey ? "Asistentas: raktas įvestas (" + K.anModel + (searchBroken ? ", paieška internete neįjungta Anthropic konsolėje" : window.__canSearch() ? ", su paieška internete" : "") + ")" : "Asistentas: įvesk Anthropic raktą nustatymuose");
-    if (Date.now() < elDownUntil) status("stVoice", true, "Balsas: atsarginis nemokamas (ElevenLabs laikinai neveikia)"); else status("stVoice", !!(K.elKey && K.elVoice), K.elKey && K.elVoice ? "Balsas: ElevenLabs" + (K.elVoiceName ? " (" + K.elVoiceName + ")" : "")
+    var resetTxt = elInfo && elInfo.reset ? ", ElevenLabs kreditai atsinaujins " + new Date(elInfo.reset).toLocaleDateString("lt-LT") : "";
+    if (Date.now() < elDownUntil) status("stVoice", true, "Balsas: atsarginis nemokamas (ElevenLabs neveikia arba baigėsi kreditai" + resetTxt + ")"); else status("stVoice", !!(K.elKey && K.elVoice), K.elKey && K.elVoice ? "Balsas: ElevenLabs" + (K.elVoiceName ? " (" + K.elVoiceName + ")" : "") + (elInfo ? ", liko " + elInfo.left.toLocaleString("lt-LT") + " simb." : "")
       : "Balsas: naršyklės balsas, kol neįvestas ElevenLabs raktas ir balsas");
     status("stStore", true, "Atmintis: šiame įrenginyje");
     var brLi = document.getElementById("stBridge"); if (brLi) brLi.hidden = !K.brToken;
@@ -1049,6 +1078,7 @@
     var st = document.getElementById("stStore");
     if (st && !document.getElementById("stBridge")) { var li = document.createElement("li"); li.id = "stBridge"; st.parentNode.appendChild(li); }
     if (K.brToken) setTimeout(function () { window.__bridge.health().catch(function () {}); }, 1500);
+    checkElCredits();
     var panel = document.querySelector(".panel-in"), head = document.querySelector(".panel-head");
     if (!panel || !head) return;
     var box = el("section", { "class": "keys" });
@@ -1113,7 +1143,7 @@
     if (top) { top.insertBefore(chip, top.firstChild); document.body.appendChild(menu); }
     updateChip();
     modelListeners.push(function () { updateChip(); fillModels(); buildMenu(); refresh(); });
-    var f2 = field(box, "kEl", "ElevenLabs API raktas", "password", K.elKey, "", function (v) { K.elKey = v; });
+    var f2 = field(box, "kEl", "ElevenLabs API raktas", "password", K.elKey, "", function (v) { K.elKey = v; setElDown(0); elInfo = null; checkElCredits(); });
     f2.setAttribute("type", "text"); f2.style.webkitTextSecurity = "disc";
 
     box.appendChild(el("label", { "for": "kVoice" }, "ElevenLabs balsas"));
@@ -1166,7 +1196,7 @@
     var chk2 = el("label", { "class": "check" });
     var cb2 = el("input", { type: "checkbox", id: "kFallback" });
     cb2.checked = K.fallback === "on";
-    cb2.addEventListener("change", function () { K.fallback = cb2.checked ? "on" : "off"; elDownUntil = 0; save(); });
+    cb2.addEventListener("change", function () { K.fallback = cb2.checked ? "on" : "off"; setElDown(0); save(); });
     chk2.appendChild(cb2); chk2.appendChild(el("span", null, "Atsarginis nemokamas balsas: kai ElevenLabs kreditai baigiasi ar nėra ryšio, kalbėti naršyklės balsu (prastesnis, bet nemokamas)"));
     box.appendChild(chk2);
 
@@ -1872,6 +1902,10 @@
     fillerP = tts.speak(text, { voice: settings.voice, rate: settings.rate, mood: "calm", tilt: dayTilt(), cache: !!pooled }).catch(noop).then(function () { fillerActive = false; });
   }
   var currentOpener = "", openerSpoken = false, waitLine = "";
+  /* when Anthropic has just refused for lack of credit, he does not start talking an answer that cannot come */
+  var anDownUntil = 0;
+  try { anDownUntil = Number(localStorage.getItem("klaudijus.anDown")) || 0; } catch (e) {}
+  function setAnDown(until) { anDownUntil = until; try { if (until) localStorage.setItem("klaudijus.anDown", String(until)); else localStorage.removeItem("klaudijus.anDown"); } catch (e) {} }
   function seenOpen(o) { return mem.recentOpen.indexOf(o) !== -1; }
   function rememberOpen(o) { if (!o) return; mem.recentOpen.push(o); if (mem.recentOpen.length > 25) mem.recentOpen.shift(); }
   /* a pooled phrase that was not used lately */
@@ -1890,7 +1924,7 @@
   /* he reacts to what you actually said within a second; a fresh pooled phrase if the quick model is slow */
   function getOpener(question, bubble) {
     currentOpener = ""; openerSpoken = false; waitLine = "";
-    if (!settings.narrate || !tts || muted || willSearchFor(question) || settings.tone === "labai trumpai ir dalykiškai") return Promise.resolve();
+    if (!settings.narrate || !tts || muted || willSearchFor(question) || settings.tone === "labai trumpai ir dalykiškai" || Date.now() < anDownUntil) return Promise.resolve();
     var set = (FILLERS[settings.tone] || FILLERS["draugiškai ir šiltai"]).first;
     var D = dayMood(), spicy = settings.tone === "aštriai ir drąsiai" || settings.tone === "išprotėjęs cinikas";
     var sw = spicy && settings.swears ? settings.swears.split(/\n+/).filter(Boolean).sort(function () { return Math.random() - 0.5; }).slice(0, 6) : [];
@@ -1916,7 +1950,12 @@
       sample([{ role: "user", content: prompt }], { fast: true, maxTokens: 80, cache: false }).then(function (res) {
         var lines = String((res && res.text) || "").split(/\n+/).map(cleanLine).filter(function (l) { return l.length > 2; });
         if (lines[0] && lines[0].split(/\s+/).length <= 14) finish(lines[0], lines[1]);
-      }).catch(noop);
+      }).catch(function (e) {
+        /* no credit: say nothing rather than start an answer that cannot come */
+        if (!done && /credit balance|billing|purchase credits/i.test(String((e && e.message) || ""))) {
+          done = true; setAnDown(Date.now() + 20 * 60000); resolve();
+        }
+      });
     });
   }
   function startFillers(question, bubble) {
@@ -2553,7 +2592,7 @@
   /* ---------- he speaks up by himself after a long silence ---------- */
   var lastActivity = Date.now(), nudgeMisses = 0, nudgeLog = [];
   function checkNudge() {
-    if (settings.nudge === "off" || !sample || busy || listening || state !== "idle" || !panel.hidden || drafting) return;
+    if (settings.nudge === "off" || !sample || busy || listening || state !== "idle" || !panel.hidden || drafting || Date.now() < anDownUntil) return;
     if (document.visibilityState !== "visible" || !greeted) return;
     var h = new Date().getHours();
     if (h >= 23 || h < 7) return;
@@ -2661,6 +2700,7 @@
     }).then(function (res) {
       var parts = splitMood((res && res.text) || "");
       answer = parts.text.trim();
+      if (anDownUntil) setAnDown(0);
       var shownAnswer = answer && currentOpener ? currentOpener + " " + answer : answer;
       answerMood = parts.mood || "calm";
       if (answer && parts.mood) react(parts.mood);
@@ -2683,7 +2723,13 @@
     }).catch(function (err) {
       mem.history.pop();
       bubble.className = "msg err";
-      var code = err && err.code;
+      var code = err && err.code, emsg = String((err && err.message) || "");
+      if (/credit balance|billing|purchase credits/i.test(emsg)) {
+        setAnDown(Date.now() + 20 * 60000);
+        bubble.textContent = "Baigėsi Anthropic API kreditai, todėl negaliu atsakyti. Papildyk juos console.anthropic.com → Plans & Billing.";
+        captionEl.textContent = bubble.textContent;
+        return;
+      }
       bubble.textContent =
         code === "rate_limited" ? "Per daug klausimų iš eilės. Palauk minutę ir bandyk vėl." :
         code === "not_granted" ? "Asistentui neduotas leidimas atsakyti šiame puslapyje." :
