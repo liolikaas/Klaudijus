@@ -90,6 +90,10 @@ function startJob(text, fresh) {
     "--append-system-prompt", SPOKEN];
   if (cfg.allowedTools && cfg.allowedTools.length && cfg.permissionMode !== "bypassPermissions")
     args.push("--allowedTools", cfg.allowedTools.join(","));
+  /* Claude Code also inherits allow rules from the user's and the project's settings (an unrestricted "Bash" there
+     would cancel the list above). Deny rules always win, so commands, web fetches and MCP tools (mail, browser)
+     are shut here for good, whatever any settings file says. Not configurable on purpose. */
+  args.push("--disallowedTools", "Bash,PowerShell,WebFetch", "--strict-mcp-config");
   if (cfg.model) args.push("--model", cfg.model);
   if (!fresh && cfg.lastSession) args.push("--resume", cfg.lastSession);
 
