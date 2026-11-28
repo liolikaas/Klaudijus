@@ -1061,7 +1061,8 @@
 
   /* ---------- cloud memory: Firebase (Google sign-in + Firestore), readable only by the signed-in owner ---------- */
   /* these values are meant to be public: they name the project, the security rules guard the data */
-  var FB_CONFIG = null;
+  var FB_CONFIG = { apiKey: "AIzaSyBWzKAm9X-eogfmZREKBuoVFvsR3_r9Wz8", authDomain: "klaudijus-20bdd.firebaseapp.com", projectId: "klaudijus-20bdd",
+    storageBucket: "klaudijus-20bdd.firebasestorage.app", messagingSenderId: "142860513302", appId: "1:142860513302:web:7aba0ce1739ab1bfb78537" };
   var FB_SDK = "https://www.gstatic.com/firebasejs/10.12.2/";
   var cloud = { state: FB_CONFIG ? "loading" : "off", user: null, err: "" };
   function loadScript(src) {
@@ -1127,6 +1128,7 @@
         var c = e && e.code;
         box.querySelector("p").textContent = c === "auth/popup-closed-by-user" || c === "auth/cancelled-popup-request" ? "Prisijungimas atšauktas. Bandyk dar kartą." :
           c === "auth/popup-blocked" ? "Naršyklė užblokavo prisijungimo langą. Leisk iššokančius langus šiam puslapiui ir bandyk dar kartą." :
+          c === "auth/operation-not-allowed" || c === "auth/configuration-not-found" ? "Firebase projekte dar neįjungtas prisijungimas per Google (Authentication → Sign-in method → Google)." :
           c === "auth/unauthorized-domain" ? "Šis adresas neįtrauktas į Firebase leidžiamų domenų sąrašą (Authentication → Settings → Authorized domains)." :
           "Nepavyko prisijungti: " + ((e && e.message) || c || "nežinoma klaida");
       });
