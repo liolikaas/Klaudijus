@@ -37,7 +37,7 @@ const DEFAULTS = {
   model: "",
   maxTurns: 40,
   claudeCommand: "claude",
-  allowedOrigins: ["https://liolikaas.github.io"],
+  allowedOrigins: ["https://klaudijus-20bdd.web.app", "https://klaudijus-20bdd.firebaseapp.com"],
   lastSession: ""
 };
 
