@@ -1059,8 +1059,91 @@
     pause: function () {}, resume: function () {}, setRate: function () {}
   };
 
+  /* ---------- cloud memory: Firebase (Google sign-in + Firestore), readable only by the signed-in owner ---------- */
+  /* these values are meant to be public: they name the project, the security rules guard the data */
+  var FB_CONFIG = null;
+  var FB_SDK = "https://www.gstatic.com/firebasejs/10.12.2/";
+  var cloud = { state: FB_CONFIG ? "loading" : "off", user: null, err: "" };
+  function loadScript(src) {
+    return new Promise(function (ok, bad) {
+      var s = document.createElement("script"); s.src = src; s.async = false;
+      s.onload = ok; s.onerror = function () { bad(new Error("nepavyko įkelti " + src.split("/").pop())); };
+      document.head.appendChild(s);
+    });
+  }
+  var cloudDb = !FB_CONFIG ? Promise.resolve(null) :
+    Promise.all(["firebase-app-compat.js", "firebase-auth-compat.js", "firebase-firestore-compat.js"].map(function (f) { return loadScript(FB_SDK + f); }))
+      .then(function () {
+        if (!firebase.apps.length) firebase.initializeApp(FB_CONFIG);
+        return new Promise(function (ok) {
+          var stop = firebase.auth().onAuthStateChanged(function (u) { stop(); ok(u); });
+        });
+      }).then(function (u) {
+        cloud.user = u || null; cloud.state = u ? "on" : "signedout"; renderCloud();
+        return u ? firebase.firestore() : null;
+      }).catch(function (e) {
+        /* offline or blocked: he simply keeps working from this device */
+        cloud.state = "error"; cloud.err = String((e && e.message) || e); renderCloud();
+        return null;
+      });
+  var dbAdapter = {
+    doc: function (path) {
+      return {
+        get: function () { return cloudDb.then(function (db) { return db.doc(path).get(); }).then(function (s) { return { exists: s.exists, data: function () { return s.data(); } }; }); },
+        set: function (body) { return cloudDb.then(function (db) { return db.doc(path).set(body); }); }
+      };
+    }
+  };
+  window.__cloudNote = "";
+  function renderCloud() {
+    var box = document.getElementById("cloudBox");
+    if (!box) return;
+    var txt = box.querySelector("p"), inB = box.querySelector(".cloud-in"), outB = box.querySelector(".cloud-out");
+    var who = cloud.user ? (cloud.user.email || cloud.user.displayName || "tavo paskyra") : "";
+    txt.textContent =
+      cloud.state === "on" ? "Prisijungęs kaip " + who + ". Atmintis saugoma debesyje, todėl jis tave pažins bet kuriame įrenginyje." :
+      cloud.state === "signedout" ? "Prisijunk su Google, ir jo atmintis bus saugoma debesyje: neprapuls išvalius naršyklę ar pakeitus telefoną. Tai, ką jis žino dabar, persikels." :
+      cloud.state === "error" ? "Debesis dabar nepasiekiamas (" + cloud.err + "). Viskas saugoma šiame įrenginyje." :
+      cloud.state === "loading" ? "Jungiuosi prie debesies…" : "";
+    inB.hidden = cloud.state !== "signedout"; outB.hidden = cloud.state !== "on";
+    box.hidden = cloud.state === "off";
+    window.__cloudNote = cloud.state === "signedout" ? "Atmintis laikoma tik šiame įrenginyje. Prisijunk su Google nustatymuose, kad ji būtų saugoma debesyje." : "";
+  }
+  document.addEventListener("DOMContentLoaded", function () {
+    var note = document.getElementById("syncNote");
+    if (!note || !FB_CONFIG) return;
+    var box = el("div", { id: "cloudBox", "class": "keys" });
+    box.appendChild(el("h3", null, "Atmintis debesyje"));
+    box.appendChild(el("p", { "class": "hint" }, ""));
+    var inB = el("button", { type: "button", "class": "wide cloud-in" }, "Prisijungti su Google");
+    var outB = el("button", { type: "button", "class": "wide cloud-out" }, "Atsijungti");
+    inB.addEventListener("click", function () {
+      inB.disabled = true;
+      firebase.auth().signInWithPopup(new firebase.auth.GoogleAuthProvider()).then(function () {
+        /* a clean start joins the cloud through the one careful path */
+        location.reload();
+      }).catch(function (e) {
+        inB.disabled = false;
+        var c = e && e.code;
+        box.querySelector("p").textContent = c === "auth/popup-closed-by-user" || c === "auth/cancelled-popup-request" ? "Prisijungimas atšauktas. Bandyk dar kartą." :
+          c === "auth/popup-blocked" ? "Naršyklė užblokavo prisijungimo langą. Leisk iššokančius langus šiam puslapiui ir bandyk dar kartą." :
+          c === "auth/unauthorized-domain" ? "Šis adresas neįtrauktas į Firebase leidžiamų domenų sąrašą (Authentication → Settings → Authorized domains)." :
+          "Nepavyko prisijungti: " + ((e && e.message) || c || "nežinoma klaida");
+      });
+    });
+    outB.addEventListener("click", function () {
+      /* signing out keeps this device's copy; the cloud copy stays safe for the next sign-in */
+      firebase.auth().signOut().then(function () { location.reload(); });
+    });
+    box.appendChild(inB); box.appendChild(outB);
+    note.parentNode.insertBefore(box, note);
+    renderCloud();
+  });
+
   window.claude = {
     use: function (name) {
+      if (name === "db") return cloudDb.then(function (db) { return db ? dbAdapter : null; });
+      if (name === "user") return cloudDb.then(function (db) { return db && cloud.user ? { id: function () { return cloud.user.uid; } } : null; });
       return Promise.resolve(name === "sample" ? sample : name === "tts" ? tts : null);
     }
   };
@@ -1090,7 +1173,7 @@
     var resetTxt = elInfo && elInfo.reset ? ", ElevenLabs kreditai atsinaujins " + new Date(elInfo.reset).toLocaleDateString("lt-LT") : "";
     if (Date.now() < elDownUntil) status("stVoice", true, "Balsas: atsarginis nemokamas (ElevenLabs neveikia arba baigėsi kreditai" + resetTxt + ")"); else status("stVoice", !!(K.elKey && K.elVoice), K.elKey && K.elVoice ? "Balsas: ElevenLabs" + (K.elVoiceName ? " (" + K.elVoiceName + ")" : "") + (elInfo ? ", liko " + elInfo.left.toLocaleString("lt-LT") + " simb." : "")
       : "Balsas: naršyklės balsas, kol neįvestas ElevenLabs raktas ir balsas");
-    status("stStore", true, "Atmintis: šiame įrenginyje");
+    /* the memory line is written by the cloud sync itself, so it is not overwritten here */
     var brLi = document.getElementById("stBridge"); if (brLi) brLi.hidden = !K.brToken;
     if (K.brToken) status("stBridge", brState.ok !== false, brState.ok ? "Kompiuteris: prijungtas (" + String(brState.info.workdir || "").split(/[\\/]/).pop() + ")"
       : brState.ok === false ? "Kompiuteris: " + brState.err : "Kompiuteris: tikrinu ryšį…");
@@ -1465,18 +1548,30 @@
     document.querySelector(".panel-foot").classList.add("dirty");
     $("dirtyNote").textContent = "Yra neišsaugotų pakeitimų.";
   }
+  /* which copy is newer: this device remembers when it last changed each part (ls/lm), which account it last synced with (uid),
+     and the cloud copy carries _at, the moment it was written */
+  var LS_SYNC = LS + ".sync";
+  function syncInfo() { try { return JSON.parse(localStorage.getItem(LS_SYNC) || "null") || {}; } catch (e) { return {}; } }
+  function setSyncInfo(o) { try { localStorage.setItem(LS_SYNC, JSON.stringify(o)); } catch (e) {} }
+
   function persist(which) {
     /* only settings wait for "Išsaugoti"; memory (the conversation, notes) is always saved at once */
     if (drafting && which === "settings") { markDirty(); return; }
     /* while the panel is open, unsaved settings must not reach the disk together with the conversation */
     try { localStorage.setItem(LS, JSON.stringify({ settings: drafting && snap ? snap.settings : settings, mem: mem })); } catch (e) {}
+    var at = Date.now(), info = syncInfo();
+    info[which === "settings" ? "ls" : "lm"] = at; setSyncInfo(info);
     if (!store) return;
     var ref = store[which];
     var body = JSON.parse(JSON.stringify(which === "settings" ? settings : mem));
-    chain = chain.then(function () { return ref.set(body); }).catch(function () {
+    body._at = at;
+    chain = chain.then(function () { return ref.set(body); }).then(function () {
+      if (warned) { warned = false; syncNote.textContent = "Nustatymai, atmintis ir pokalbis saugomi tavo paskyroje."; setStatus("stStore", true, "Atmintis: debesyje (sinchronizuota)"); }
+    }).catch(function () {
       if (warned) return;
       warned = true;
-      syncNote.textContent = "Nepavyko išsaugoti paskyroje. Duomenys laikomi tik šioje naršyklėje.";
+      setStatus("stStore", false, "Atmintis: debesis nepasiekiamas, saugau šiame įrenginyje");
+      syncNote.textContent = "Nepavyko išsaugoti debesyje. Kol kas viskas laikoma šiame įrenginyje ir bus išsaugota, kai ryšys grįš.";
     });
   }
 
@@ -1725,33 +1820,56 @@
     return window.claude.use(name).catch(function () { return null; });
   }
 
+  /* the cloud is joined in one decision, before anything is written there:
+     - this device synced with this account before: for each part, the newer copy wins (local changes made offline go up)
+     - first time on this device: an existing cloud copy wins (the local one is kept aside as a backup); an empty cloud gets the local copy
+     Until the decision, store stays null, so nothing half-loaded can overwrite the cloud. */
+  var cloudUid = null, cloudRefs = null;
   Promise.all([ready("db"), ready("user")]).then(function (r) {
     var db = r[0], user = r[1];
     if (!db || !user) return null;
     return Promise.resolve(user.id()).then(function (uid) {
       if (!uid) return null;
-      store = {
-        settings: db.doc("data/users/" + uid + "/settings"),
-        memory: db.doc("data/users/" + uid + "/memory")
-      };
-      return Promise.all([store.settings.get(), store.memory.get()]);
+      cloudUid = uid;
+      cloudRefs = { settings: db.doc("data/users/" + uid + "/settings"), memory: db.doc("data/users/" + uid + "/memory") };
+      return Promise.all([cloudRefs.settings.get(), cloudRefs.memory.get()]);
     });
   }).then(function (snaps) {
-    setStatus("stStore", !!snaps, snaps ? "Atmintis: saugoma paskyroje" : "Atmintis: tik šioje naršyklėje");
     if (!snaps) {
-      syncNote.textContent = "Šiame lange paskyros saugykla nepasiekiama. Duomenys laikomi tik šioje naršyklėje.";
+      setStatus("stStore", false, "Atmintis: tik šiame įrenginyje");
+      syncNote.textContent = window.__cloudNote || "Atmintis laikoma tik šiame įrenginyje.";
       return;
     }
-    if (snaps[0].exists) takeSettings(snaps[0].data());
-    if (snaps[1].exists && !touched && !busy) { takeMem(snaps[1].data()); dropStaleGuest(); }
-    applySettings(); renderNotes();
-    if (!busy && !touched) renderTalk();
-    syncNote.textContent = "Nustatymai, atmintis ir pokalbis saugomi tavo paskyroje.";
+    joinCloud(snaps);
   }).catch(function () {
     store = null;
-    setStatus("stStore", false, "Atmintis: tik šioje naršyklėje");
-    syncNote.textContent = "Nepavyko pasiekti paskyros saugyklos. Duomenys laikomi tik šioje naršyklėje.";
+    setStatus("stStore", false, "Atmintis: debesis nepasiekiamas, saugau šiame įrenginyje");
+    syncNote.textContent = "Nepavyko pasiekti debesies. Duomenys laikomi šiame įrenginyje.";
   });
+  function joinCloud(snaps) {
+    /* never swap the memory while he is answering: wait for a quiet moment */
+    if (busy) { setTimeout(function () { joinCloud(snaps); }, 800); return; }
+    var info = syncInfo(), known = info.uid === cloudUid;
+    var cs = snaps[0].exists ? snaps[0].data() : null, cm = snaps[1].exists ? snaps[1].data() : null;
+    var upS = !cs || (known && (info.ls || 0) > (cs._at || 0));
+    var upM = !cm || (known && (info.lm || 0) > (cm._at || 0));
+    if (!known && (cs || cm)) {
+      /* a different account or a first sync here: keep what this device had, just in case */
+      try { var cur = localStorage.getItem(LS); if (cur) localStorage.setItem(LS + ".backup", cur); } catch (e) {}
+    }
+    if (!upS) takeSettings(cs);
+    if (!upM) { takeMem(cm); dropStaleGuest(); }
+    info.uid = cloudUid; setSyncInfo(info);
+    store = cloudRefs;
+    applySettings(); renderNotes();
+    if (!upM) renderTalk();
+    if (upS) persist("settings");
+    if (upM) persist("memory");
+    /* the local copy now mirrors what was taken from the cloud */
+    if (!upS || !upM) try { localStorage.setItem(LS, JSON.stringify({ settings: settings, mem: mem })); } catch (e) {}
+    setStatus("stStore", true, "Atmintis: debesyje (sinchronizuota)");
+    syncNote.textContent = "Nustatymai, atmintis ir pokalbis saugomi tavo paskyroje debesyje ir šiame įrenginyje.";
+  }
 
   ready("sample").then(function (s) {
     sample = s;
