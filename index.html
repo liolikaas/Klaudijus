@@ -4,9 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Klaudijus persikėlė</title>
-<meta http-equiv="refresh" content="0; url=https://klaudijus-20bdd.web.app/">
 <link rel="canonical" href="https://klaudijus-20bdd.web.app/">
-<script>location.replace("https://klaudijus-20bdd.web.app/" + location.search + location.hash);</script>
+<noscript><meta http-equiv="refresh" content="0; url=https://klaudijus-20bdd.web.app/"></noscript>
 <style>
   body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #05070d; color: #cfe3ff; font: 17px/1.5 system-ui, sans-serif; text-align: center; padding: 16px; }
   a { color: #58b8ff; }
@@ -14,5 +13,20 @@
 </head>
 <body>
   <p>Klaudijus persikėlė į naujus namus.<br><a href="https://klaudijus-20bdd.web.app/">Atidaryti Klaudijų</a></p>
+<script>
+  /* the old address kept its own copy in this browser: API keys, the bridge token, memory and a sign-in.
+     Everything now lives at the new address and in the cloud, so the old copy is cleared before moving on. */
+  (function () {
+    var target = "https://klaudijus-20bdd.web.app/" + location.search + location.hash, gone = false;
+    function go() { if (gone) return; gone = true; location.replace(target); }
+    try { ["klaudijus.cfg", "asist.v2", "asist.v2.sync", "asist.v2.backup"].forEach(function (k) { localStorage.removeItem(k); }); } catch (e) {}
+    try { sessionStorage.clear(); } catch (e) {}
+    try {
+      var req = indexedDB.deleteDatabase("firebaseLocalStorageDb");
+      req.onsuccess = req.onerror = req.onblocked = go;
+    } catch (e) {}
+    setTimeout(go, 1200);
+  })();
+</script>
 </body>
 </html>
